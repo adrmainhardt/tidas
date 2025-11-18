@@ -1,12 +1,12 @@
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { DEFAULT_SITES, MOCK_FORMS } from './constants';
 import { SiteConfig, SiteStatus, ViewState, FormSubmission } from './types';
 import MonitorCard from './components/MonitorCard';
 import InboxItem from './components/InboxItem';
 import TabNav from './components/TabNav';
 import { fetchFormsFromWP, fetchSiteStats } from './services/wpService';
-import { Activity, RefreshCw, AlertTriangle, WifiOff, Trash2, Users } from 'lucide-react';
+import { Activity, RefreshCw, AlertTriangle, WifiOff, Trash2, BarChart3 } from 'lucide-react';
 
 // Hooks para persistência
 const usePersistedState = <T,>(key: string, initialValue: T): [T, React.Dispatch<React.SetStateAction<T>>] => {
@@ -41,9 +41,18 @@ const App: React.FC = () => {
   const [readFormIds, setReadFormIds] = usePersistedState<string[]>('monitor_read_forms', []);
   const [deletedFormIds, setDeletedFormIds] = usePersistedState<string[]>('monitor_deleted_forms', []);
 
+  // CRUCIAL: Refs para manter acesso ao estado mais recente dentro do syncForms (que roda em intervalo/efeito)
+  // Isso resolve o bug onde os forms apagados voltavam
+  const deletedIdsRef = useRef(deletedFormIds);
+  const readIdsRef = useRef(readFormIds);
+
+  // Mantém os refs sincronizados com o estado
+  useEffect(() => { deletedIdsRef.current = deletedFormIds; }, [deletedFormIds]);
+  useEffect(() => { readIdsRef.current = readFormIds; }, [readFormIds]);
+
   // Log para debug de versão
   useEffect(() => {
-    console.log("Monitor App v2.0 - Clean Build");
+    console.log("Monitor App v2.2 - Fix Deleted Forms Persistence");
   }, []);
 
   // Solicitar permissão de notificação ao iniciar
@@ -55,7 +64,7 @@ const App: React.FC = () => {
 
   const sendNotification = (title: string, body: string) => {
     if ('Notification' in window && Notification.permission === 'granted') {
-      new Notification(title, { body, icon: '/favicon.ico' }); 
+      new Notification(title, { body, icon: 'https://tidas.com.br/wp-content/uploads/2025/08/logo_tidas_rodan2.svg' }); 
     }
   };
 
@@ -142,15 +151,22 @@ const App: React.FC = () => {
       
       if (fetchedForms.length > 0) {
         setForms(currentForms => {
-          const activeForms = fetchedForms.filter(f => !deletedFormIds.includes(f.id));
+          // CRUCIAL: Usar .current dos refs para garantir que estamos filtrando
+          // usando a lista mais atual de excluídos, não a lista de quando o app abriu.
+          const activeForms = fetchedForms.filter(f => !deletedIdsRef.current.includes(f.id));
           
           const processedForms = activeForms.map(f => ({
             ...f,
-            isRead: readFormIds.includes(f.id) ? true : f.isRead
+            isRead: readIdsRef.current.includes(f.id) ? true : f.isRead
           }));
 
           const previousIds = currentForms.map(c => c.id);
-          const newArrivals = processedForms.filter(p => !previousIds.includes(p.id) && !p.isRead);
+          // Só notifica se for novo E não estiver lido E não estiver na lista de apagados
+          const newArrivals = processedForms.filter(p => 
+            !previousIds.includes(p.id) && 
+            !p.isRead && 
+            !deletedIdsRef.current.includes(p.id)
+          );
           
           if (newArrivals.length > 0) {
              sendNotification('Novo Formulário', `Você recebeu ${newArrivals.length} nova(s) mensagem(ns).`);
@@ -181,14 +197,23 @@ const App: React.FC = () => {
 
   const handleDismissForm = (id: string) => {
     if (!deletedFormIds.includes(id)) {
-        setDeletedFormIds(prev => [...prev, id]);
+        setDeletedFormIds(prev => {
+          const newState = [...prev, id];
+          // Atualiza o ref imediatamente para garantir sincronia se um fetch ocorrer logo em seguida
+          deletedIdsRef.current = newState; 
+          return newState;
+        });
         setForms(prev => prev.filter(f => f.id !== id));
     }
   };
 
   const handleClearRead = () => {
     const readIds = forms.filter(f => f.isRead).map(f => f.id);
-    setDeletedFormIds(prev => [...prev, ...readIds]);
+    setDeletedFormIds(prev => {
+      const newState = [...prev, ...readIds];
+      deletedIdsRef.current = newState;
+      return newState;
+    });
     setForms(prev => prev.filter(f => !f.isRead));
   };
 
@@ -237,8 +262,8 @@ const App: React.FC = () => {
                 <span className="text-sm font-medium text-slate-200">{site.name}</span>
                 {site.status === SiteStatus.ONLINE && (
                   <span className="text-[10px] text-slate-400 flex items-center gap-1 mt-0.5">
-                    <Users className="w-3 h-3 text-blue-400" />
-                    {site.onlineUsers !== undefined ? site.onlineUsers : '-'} online agora
+                    <BarChart3 className="w-3 h-3 text-purple-400" />
+                    {site.monthlyVisitors !== undefined ? site.monthlyVisitors.toLocaleString('pt-BR') : '-'} visitantes/mês
                   </span>
                 )}
               </div>
@@ -327,7 +352,7 @@ const App: React.FC = () => {
           <img 
             src="https://tidas.com.br/wp-content/uploads/2025/08/logo_tidas_rodan2.svg" 
             alt="Tidas" 
-            className="h-5 w-auto object-contain py-0.5"
+            className="h-8 w-auto object-contain py-0.5"
           />
         </div>
       </div>

@@ -8,8 +8,11 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     
+    <!-- PWA Manifest para Android -->
+    <link rel="manifest" href="/manifest.json">
+    
     <!-- Ícone para iPhone/iPad quando salvo na tela inicial -->
-    <link rel="apple-touch-icon" href="https://tidas.com.br/wp-content/uploads/2025/08/logo_tidas_rodan2.svg">
+    <link rel="apple-touch-icon" href="https://tidas.com.br/wp-content/uploads/2025/11/icoapp.png">
     
     <title>Monitor WP</title>
     <script src="https://cdn.tailwindcss.com"></script>
@@ -45,33 +48,5 @@
         color: #f8fafc; /* brand-50 */
         overscroll-behavior-y: none; /* Previne efeito elástico no mobile */
       }
-      /* Hide scrollbar for clean UI */
-      ::-webkit-scrollbar {
-        width: 6px;
-      }
-      ::-webkit-scrollbar-track {
-        background: #0f172a; 
-      }
-      ::-webkit-scrollbar-thumb {
-        background: #334155; 
-        border-radius: 3px;
-      }
-    </style>
-  <script type="importmap">
-{
-  "imports": {
-    "lucide-react": "https://aistudiocdn.com/lucide-react@^0.554.0",
-    "react/": "https://aistudiocdn.com/react@^19.2.0/",
-    "react": "https://aistudiocdn.com/react@^19.2.0",
-    "@google/genai": "https://aistudiocdn.com/@google/genai@^1.30.0",
-    "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.0/"
-  }
-}
-</script>
-<link rel="stylesheet" href="/index.css">
-</head>
-  <body>
-    <div id="root"></div>
-  <script type="module" src="/index.tsx"></script>
-</body>
-</html>
+      /* Hide scrollbar for clean UI */<link rel="stylesheet" href="/index.css">
+<script type="module" src="/index.tsx"></script>

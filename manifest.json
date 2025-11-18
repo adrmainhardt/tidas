@@ -1,0 +1,16 @@
+{
+  "name": "Monitor WP & Elementor",
+  "short_name": "Monitor WP",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0f172a",
+  "theme_color": "#0f172a",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "https://tidas.com.br/wp-content/uploads/2025/08/logo_tidas_rodan2.svg",
+      "sizes": "any",
+      "type": "image/svg+xml"
+    }
+  ]
+}

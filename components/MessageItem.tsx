@@ -1,0 +1,173 @@
+
+import React, { useState, useRef } from 'react';
+import { FormSubmission } from '../types';
+import { Mail, Calendar, ChevronRight, Trash2, Globe } from 'lucide-react';
+
+interface MessageItemProps {
+  form: FormSubmission;
+  siteName: string;
+  onMarkAsRead: () => void;
+  onDismiss: () => void;
+}
+
+const MessageItem: React.FC<MessageItemProps> = ({ form, siteName, onMarkAsRead, onDismiss }) => {
+  // Swipe Logic State
+  const [translateX, setTranslateX] = useState(0);
+  const [isDragging, setIsDragging] = useState(false);
+  const touchStartX = useRef<number | null>(null);
+  const itemRef = useRef<HTMLDivElement>(null);
+
+  // Constante para definir quanto movimento é necessário para considerar um swipe
+  const DRAG_THRESHOLD = 10;
+
+  const handleTouchStart = (e: React.TouchEvent) => {
+    touchStartX.current = e.touches[0].clientX;
+    setIsDragging(true);
+  };
+
+  const handleTouchMove = (e: React.TouchEvent) => {
+    if (!touchStartX.current) return;
+    
+    const currentX = e.touches[0].clientX;
+    const diff = currentX - touchStartX.current;
+
+    // Só começa a mover visualmente se passar do threshold ou se já estiver movendo
+    if (Math.abs(diff) > DRAG_THRESHOLD) {
+        // Só permite deslizar para esquerda (valores negativos), max -200px
+        if (diff < 0 && diff > -200) {
+            setTranslateX(diff);
+        }
+    }
+  };
+
+  const handleTouchEnd = () => {
+    if (translateX < -100) {
+      // Swiped far enough to delete
+      setTranslateX(-500); // Animate out
+      setTimeout(() => {
+        onDismiss();
+      }, 300); // Wait for animation
+    } else {
+      // Reset position (snap back)
+      setTranslateX(0);
+    }
+    touchStartX.current = null;
+    setIsDragging(false);
+  };
+
+  // Mouse events for desktop testing
+  const handleMouseDown = (e: React.MouseEvent) => {
+    touchStartX.current = e.clientX;
+    setIsDragging(true);
+  };
+  
+  const handleMouseMove = (e: React.MouseEvent) => {
+    if (!isDragging || !touchStartX.current) return;
+    const diff = e.clientX - touchStartX.current;
+    
+    if (Math.abs(diff) > DRAG_THRESHOLD) {
+        if (diff < 0) setTranslateX(diff);
+    }
+  };
+
+  const handleMouseUp = () => {
+    handleTouchEnd();
+  };
+
+  const handleClick = () => {
+    // Se o card não moveu quase nada, é um clique válido
+    if (Math.abs(translateX) < 5) {
+      onMarkAsRead();
+    }
+  };
+
+  const handleReadButtonClick = (e: React.MouseEvent) => {
+    e.stopPropagation(); // Impede que o clique propague para o container
+    onMarkAsRead();
+  };
+
+  const isUnread = !form.isRead;
+  
+  // Só mostra o fundo vermelho se estiver arrastando significativamente
+  const showBackground = translateX < -5;
+
+  return (
+    <div className="relative mb-3 select-none touch-pan-y overflow-hidden rounded-xl">
+      {/* Background Layer (Red Trash) - Hidden unless dragging to avoid bleed-through */}
+      <div 
+        className={`absolute inset-0 bg-rose-600 flex items-center justify-end pr-6 rounded-xl transition-opacity duration-200 ${showBackground ? 'opacity-100' : 'opacity-0'}`}
+      >
+        <Trash2 className="w-6 h-6 text-white" />
+      </div>
+
+      {/* Foreground Layer (Card) */}
+      <div 
+        ref={itemRef}
+        className={`relative p-4 shadow-md transition-all duration-200 ease-out cursor-pointer rounded-xl border
+          ${isUnread 
+            ? 'bg-slate-800 border-blue-500/30 shadow-blue-500/10 opacity-100' 
+            : 'bg-slate-900 border-slate-800 opacity-60'}
+        `}
+        style={{ transform: `translateX(${translateX}px)` }}
+        onTouchStart={handleTouchStart}
+        onTouchMove={handleTouchMove}
+        onTouchEnd={handleTouchEnd}
+        onMouseDown={handleMouseDown}
+        onMouseMove={handleMouseMove}
+        onMouseUp={handleMouseUp}
+        onMouseLeave={handleMouseUp}
+        onClick={handleClick}
+      >
+        {/* Unread Indicator Badge */}
+        {isUnread && (
+          <div className="absolute -top-1 -right-1 z-10 bg-blue-500 text-white text-[10px] font-bold px-2 py-0.5 rounded-bl-lg rounded-tr-lg shadow-sm">
+            NOVO
+          </div>
+        )}
+
+        <div className="flex justify-between items-start mb-2">
+          <div className="flex items-center gap-3 overflow-hidden">
+            <div className={`p-2 rounded-full transition-colors ${isUnread ? 'bg-blue-500/20' : 'bg-slate-700/30'}`}>
+              <Mail className={`w-4 h-4 ${isUnread ? 'text-blue-400' : 'text-slate-600'}`} />
+            </div>
+            <div className="flex flex-col overflow-hidden">
+              <span className={`text-sm truncate pr-2 ${isUnread ? 'font-bold text-white' : 'font-medium text-slate-400'}`}>
+                {form.senderName}
+              </span>
+              {/* Site Name with Icon */}
+              <div className="flex items-center gap-1 mt-0.5">
+                 <Globe className={`w-3 h-3 ${isUnread ? 'text-blue-300/70' : 'text-slate-600'}`} />
+                 <span className={`text-xs font-medium uppercase tracking-wide ${isUnread ? 'text-blue-300' : 'text-slate-500'}`}>
+                   {siteName}
+                 </span>
+              </div>
+            </div>
+          </div>
+        </div>
+        
+        <p className={`text-sm line-clamp-2 mb-3 pl-11 transition-colors ${isUnread ? 'text-slate-300' : 'text-slate-500'}`}>
+          {form.message}
+        </p>
+
+        <div className="flex justify-between items-center pl-11">
+          <div className="flex items-center gap-1 text-xs text-slate-600">
+            <Calendar className="w-3 h-3" />
+            {form.timestamp.toLocaleDateString()} {form.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+          </div>
+          
+          {/* Botão Ler Explícito */}
+          {isUnread && (
+            <button 
+                onClick={handleReadButtonClick}
+                className="flex items-center text-blue-400 text-xs font-bold hover:text-blue-300 active:scale-95 transition-transform px-2 py-1 rounded bg-blue-500/10 hover:bg-blue-500/20"
+            >
+              Ler <ChevronRight className="w-3 h-3 ml-0.5" />
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export default MessageItem;

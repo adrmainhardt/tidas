@@ -243,6 +243,7 @@ const App: React.FC = () => {
             f.timestamp instanceof Date && !isNaN(f.timestamp.getTime())
           );
           
+          // Aplica o estado de lido baseado na persistência
           const processedForms = activeForms.map(f => ({
             ...f,
             isRead: currentReadIds.includes(f.id) ? true : f.isRead
@@ -259,11 +260,12 @@ const App: React.FC = () => {
              sendNotification('Novo Formulário', `Você recebeu ${newArrivals.length} nova(s) mensagem(ns).`);
           }
 
-          // Ordenação: Primeiro os NÃO LIDOS, depois pela Data (mais recente)
+          // Ordenação CRUCIAL: Primeiro os NÃO LIDOS, depois os mais recentes
           return processedForms.sort((a, b) => {
             if (a.isRead !== b.isRead) {
-              return a.isRead ? 1 : -1; // False (Não lido) vem primeiro
+              return a.isRead ? 1 : -1; // False (Não lido/Novo) vem primeiro (-1)
             }
+            // Se ambos forem iguais (ambos lidos ou ambos novos), ordena por data
             return b.timestamp.getTime() - a.timestamp.getTime();
           });
         });
@@ -282,8 +284,8 @@ const App: React.FC = () => {
     
     setIsLoadingGmail(true);
     try {
-      // Busca 60 mensagens para garantir que não lidos apareçam
-      const messages = await fetchGmailMessages(token, 60);
+      // Busca 80 mensagens para garantir que novos e-mails não fiquem de fora
+      const messages = await fetchGmailMessages(token, 80);
       setEmails(messages);
     } catch (error: any) {
       console.error("Erro ao carregar Gmail:", error);
@@ -338,6 +340,7 @@ const App: React.FC = () => {
        if (isMounted) {
          await checkAllSites();
          await syncForms();
+         // Se tiver token, busca e-mail imediatamente
          if (gmailToken) fetchGmail(gmailToken);
        }
     };
@@ -368,7 +371,14 @@ const App: React.FC = () => {
       setReadFormIds(newReadIds);
       readIdsRef.current = newReadIds; // Atualiza ref imediatamente
       
-      setForms(prev => prev.map(f => f.id === id ? { ...f, isRead: true } : f));
+      setForms(prev => {
+         // Atualiza o estado local e reordena (lidos vão pro fim)
+         const updated = prev.map(f => f.id === id ? { ...f, isRead: true } : f);
+         return updated.sort((a, b) => {
+            if (a.isRead !== b.isRead) return a.isRead ? 1 : -1;
+            return b.timestamp.getTime() - a.timestamp.getTime();
+         });
+      });
     }
   };
 
@@ -609,7 +619,7 @@ const App: React.FC = () => {
                   </ul>
                   
                   <div className="flex items-center gap-2 mt-3 bg-black/40 rounded p-2 border border-slate-700/50 relative group">
-                    <code className="text-emerald-400 break-all flex-1 font-mono text-[10px] pr-14">
+                    <code className="text-emerald-400 break-all flex-1 font-mono text-[10px] pr-10">
                       {typeof window !== 'undefined' ? window.location.origin : '...'}
                     </code>
                     <button 

@@ -17,14 +17,14 @@ interface GmailMessagePart {
 interface GmailMessageDetail {
   id: string;
   threadId: string;
-  labelIds: string[];
+  labelIds?: string[]; // Opcional na API
   snippet: string;
   internalDate: string;
   payload: GmailMessagePart;
 }
 
 interface GmailListResponse {
-  messages: { id: string; threadId: string }[];
+  messages?: { id: string; threadId: string }[];
   nextPageToken?: string;
   resultSizeEstimate: number;
 }
@@ -32,26 +32,20 @@ interface GmailListResponse {
 /**
  * Busca os e-mails mais recentes da caixa de entrada.
  */
-export const fetchGmailMessages = async (accessToken: string, maxResults: number = 60): Promise<EmailMessage[]> => {
+export const fetchGmailMessages = async (accessToken: string, maxResults: number = 80): Promise<EmailMessage[]> => {
   try {
-    // 1. Buscar lista de IDs de mensagens na Inbox
-    // Alterado para 'in:inbox' que é mais robusto que 'label:INBOX'
-    // Adicionado timestamp e nonce aleatório para garantir que o navegador não use cache
-    const nonce = Math.random().toString(36).substring(7);
-    const listResponse = await fetch(
-      `${GMAIL_API_BASE}/messages?maxResults=${maxResults}&q=in:inbox&_=${Date.now()}&nonce=${nonce}`,
-      {
+    // Busca lista de IDs. label:INBOX é mais preciso para API que in:inbox
+    // Adiciona timestamp para bypass total de cache
+    const listUrl = `${GMAIL_API_BASE}/messages?maxResults=${maxResults}&q=label:INBOX&includeSpamTrash=false&_=${Date.now()}`;
+    
+    const listResponse = await fetch(listUrl, {
         method: 'GET',
-        cache: 'no-store', // CRUCIAL: Força o navegador a ir na rede
+        cache: 'no-store',
         headers: {
           Authorization: `Bearer ${accessToken}`,
-          'Content-Type': 'application/json',
-          'Cache-Control': 'no-cache, no-store, must-revalidate',
-          'Pragma': 'no-cache',
-          'Expires': '0'
+          'Content-Type': 'application/json'
         }
-      }
-    );
+    });
 
     if (!listResponse.ok) {
       if (listResponse.status === 401) {
@@ -66,10 +60,9 @@ export const fetchGmailMessages = async (accessToken: string, maxResults: number
       return [];
     }
 
-    // 2. Buscar detalhes de cada mensagem (em paralelo)
-    // Adicionado nonce individual para cada request
+    // Busca detalhes em paralelo
     const detailsPromises = listData.messages.map(msg => 
-      fetch(`${GMAIL_API_BASE}/messages/${msg.id}?_=${Date.now()}`, {
+      fetch(`${GMAIL_API_BASE}/messages/${msg.id}?format=full&_=${Date.now()}`, {
         cache: 'no-store',
         headers: { Authorization: `Bearer ${accessToken}` }
       }).then(res => res.json() as Promise<GmailMessageDetail>)
@@ -77,8 +70,10 @@ export const fetchGmailMessages = async (accessToken: string, maxResults: number
 
     const detailsData = await Promise.all(detailsPromises);
 
-    // 3. Converter para o formato do app
-    return detailsData.map(msg => parseGmailMessage(msg));
+    // Filtra mensagens inválidas e parseia
+    return detailsData
+      .filter(msg => msg && msg.id) 
+      .map(msg => parseGmailMessage(msg));
 
   } catch (error: any) {
     console.error("Erro no fetch do Gmail:", error);
@@ -90,7 +85,8 @@ export const fetchGmailMessages = async (accessToken: string, maxResults: number
  * Helper para extrair dados relevantes do JSON complexo do Gmail.
  */
 const parseGmailMessage = (msg: GmailMessageDetail): EmailMessage => {
-  const headers = msg.payload.headers;
+  const headers = msg.payload?.headers || [];
+  const labelIds = msg.labelIds || [];
   
   const getHeader = (name: string) => headers.find(h => h.name.toLowerCase() === name.toLowerCase())?.value || '';
   
@@ -98,21 +94,20 @@ const parseGmailMessage = (msg: GmailMessageDetail): EmailMessage => {
   const from = getHeader('From');
   
   // Limpa o remetente para pegar apenas o nome se possível
-  // Ex: "Google <no-reply@google.com>" -> "Google"
-  const cleanSender = from.split('<')[0].trim().replace(/"/g, '') || from;
+  const cleanSender = from ? from.split('<')[0].trim().replace(/"/g, '') : 'Desconhecido';
 
-  const isUnread = msg.labelIds.includes('UNREAD');
+  const isUnread = labelIds.includes('UNREAD');
   
   // Determina label visual baseado nas categorias do Gmail
   let label: 'Primary' | 'Updates' | 'Promotions' = 'Primary';
-  if (msg.labelIds.includes('CATEGORY_UPDATES')) label = 'Updates';
-  if (msg.labelIds.includes('CATEGORY_PROMOTIONS')) label = 'Promotions';
+  if (labelIds.includes('CATEGORY_UPDATES')) label = 'Updates';
+  if (labelIds.includes('CATEGORY_PROMOTIONS')) label = 'Promotions';
 
   return {
     id: msg.id,
-    sender: cleanSender,
+    sender: cleanSender || from,
     subject: subject,
-    snippet: msg.snippet, // Gmail já fornece um snippet decodificado
+    snippet: msg.snippet || '', 
     date: new Date(parseInt(msg.internalDate)),
     isUnread,
     label

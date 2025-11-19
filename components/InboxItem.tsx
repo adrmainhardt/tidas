@@ -89,7 +89,7 @@ const InboxItem: React.FC<InboxItemProps> = ({ form, siteName, onSelect, onDismi
         ref={itemRef}
         className={`relative p-4 transition-all duration-200 ease-out cursor-pointer rounded-xl border
           ${isUnread 
-            ? 'bg-slate-800 border-blue-500/50 shadow-lg shadow-blue-500/10 opacity-100 ring-1 ring-blue-500/20 z-10' 
+            ? 'bg-slate-800 border-blue-500 shadow-[0_0_15px_rgba(59,130,246,0.15)] opacity-100 z-10' 
             : 'bg-slate-900/30 border-transparent opacity-50 hover:opacity-70 grayscale'}
         `}
         style={{ transform: `translateX(${translateX}px)` }}
@@ -103,7 +103,7 @@ const InboxItem: React.FC<InboxItemProps> = ({ form, siteName, onSelect, onDismi
         onClick={handleClick}
       >
         {isUnread && (
-          <div className="absolute -top-1 -right-1 z-10 bg-blue-500 text-white text-[10px] font-bold px-2 py-0.5 rounded-bl-lg rounded-tr-lg shadow-sm">
+          <div className="absolute -top-1 -right-1 z-10 bg-blue-500 text-white text-[10px] font-bold px-2 py-0.5 rounded-bl-lg rounded-tr-lg shadow-sm animate-pulse">
             NOVO
           </div>
         )}

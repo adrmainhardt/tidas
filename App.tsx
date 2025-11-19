@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { DEFAULT_SITES, MOCK_FORMS, GOOGLE_CLIENT_ID } from './constants';
 import { SiteConfig, SiteStatus, ViewState, FormSubmission, EmailMessage, TrelloBoard, TrelloList, TrelloCard } from './types';
@@ -770,7 +769,7 @@ const App: React.FC = () => {
                 
                 {trelloKey ? (
                    <a 
-                     href={`https://trello.com/1/authorize?expiration=never&scope=read,write,account&response_type=token&name=MonitorWP&key=${trelloKey}`} 
+                     href={`https://trello.com/1/authorize?expiration=never&scope=read,write,account&response_type=token&name=Tidas&key=${trelloKey}`} 
                      target="_blank" 
                      className="inline-flex items-center gap-2 text-xs bg-emerald-600/20 text-emerald-400 border border-emerald-600/30 px-3 py-2 rounded-lg hover:bg-emerald-600/30 transition-colors"
                    >

@@ -39,7 +39,6 @@ export const fetchGmailMessages = async (accessToken: string, maxResults: number
     const listUrl = `${GMAIL_API_BASE}/messages?maxResults=${maxResults}&q=is:unread&includeSpamTrash=false&_=${Date.now()}`;
     
     // IMPORTANTE: Para evitar erros de CORS (Preflight), enviamos APENAS o Authorization em requisições GET.
-    // Headers como Content-Type (em GET), Cache-Control customizados, etc, disparam um preflight que a API do Google rejeita.
     const listResponse = await fetch(listUrl, {
         method: 'GET',
         headers: {
@@ -48,12 +47,30 @@ export const fetchGmailMessages = async (accessToken: string, maxResults: number
     });
 
     if (!listResponse.ok) {
+      const errText = await listResponse.text();
+      
+      // Tenta detectar erro de API Desativada
+      try {
+        const errJson = JSON.parse(errText);
+        // Código 403 + mensagem específica de 'enabled' ou 'accessNotConfigured'
+        if (listResponse.status === 403) {
+           const message = errJson.error?.message || '';
+           const reason = errJson.error?.errors?.[0]?.reason || '';
+           
+           if (message.includes('Enable it by visiting') || reason === 'accessNotConfigured') {
+             throw new Error("API_NOT_ENABLED");
+           }
+        }
+      } catch (parseError) {
+        // Ignora erro de parse e segue para erro genérico
+      }
+
       if (listResponse.status === 401) {
         throw new Error("AUTH_EXPIRED");
       }
-      const errText = await listResponse.text();
+      
       console.error("Gmail API Error Body:", errText);
-      throw new Error(`Erro na API Gmail: ${listResponse.status} ${listResponse.statusText}`);
+      throw new Error(`Erro na API Gmail: ${listResponse.status}`);
     }
 
     const listData: GmailListResponse = await listResponse.json();
@@ -81,6 +98,10 @@ export const fetchGmailMessages = async (accessToken: string, maxResults: number
       .sort((a, b) => b.date.getTime() - a.date.getTime());
 
   } catch (error: any) {
+    // Repassa o erro API_NOT_ENABLED se ele foi gerado acima
+    if (error.message === "API_NOT_ENABLED") {
+      throw error;
+    }
     console.error("Erro no fetch do Gmail:", error);
     throw error;
   }

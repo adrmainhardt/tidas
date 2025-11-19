@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { DEFAULT_SITES, MOCK_FORMS, GOOGLE_CLIENT_ID } from './constants';
 import { SiteConfig, SiteStatus, ViewState, FormSubmission, EmailMessage, TrelloBoard, TrelloList, TrelloCard } from './types';
@@ -62,6 +63,7 @@ const App: React.FC = () => {
   const [copyFeedback, setCopyFeedback] = useState(false);
   const [authError, setAuthError] = useState<boolean>(false); 
   const [authErrorType, setAuthErrorType] = useState<string | null>(null);
+  const [apiNotEnabled, setApiNotEnabled] = useState<boolean>(false); // NOVO: Controle de API Desligada
   const tokenClient = useRef<any>(null);
 
   // Trello States
@@ -116,9 +118,10 @@ const App: React.FC = () => {
             callback: (response: any) => {
               if (response.access_token) {
                 setGmailToken(response.access_token);
-                fetchGmail(response.access_token);
                 setAuthError(false);
                 setAuthErrorType(null);
+                setApiNotEnabled(false);
+                fetchGmail(response.access_token);
               }
             },
             error_callback: (error: any) => {
@@ -311,6 +314,8 @@ const App: React.FC = () => {
     if (!token) return;
     
     setIsLoadingGmail(true);
+    setApiNotEnabled(false);
+
     try {
       // Busca 60 mensagens para garantir que novos e-mails não fiquem de fora
       const messages = await fetchGmailMessages(token, 80);
@@ -330,7 +335,10 @@ const App: React.FC = () => {
       setEmails(messages);
     } catch (error: any) {
       console.error("Erro ao carregar Gmail:", error);
-      if (error.message === 'AUTH_EXPIRED') {
+      
+      if (error.message === 'API_NOT_ENABLED') {
+        setApiNotEnabled(true);
+      } else if (error.message === 'AUTH_EXPIRED') {
         setGmailToken(null); // Força re-login
       }
     } finally {
@@ -435,6 +443,7 @@ const App: React.FC = () => {
     if (tokenClient.current) {
       setAuthError(false); 
       setAuthErrorType(null);
+      setApiNotEnabled(false);
       tokenClient.current.requestAccessToken();
     } else {
       if (window.google) {
@@ -450,6 +459,7 @@ const App: React.FC = () => {
     setEmails([]);
     setAuthError(false);
     setAuthErrorType(null);
+    setApiNotEnabled(false);
     if (window.google && gmailToken) {
       try {
         window.google.accounts.oauth2.revoke(gmailToken, () => {
@@ -993,6 +1003,53 @@ const App: React.FC = () => {
 
   const renderGmail = () => {
     const isVercel = typeof window !== 'undefined' && window.location.hostname.includes('vercel.app');
+
+    // CENA DE ERRO CRÍTICO: API NÃO ATIVADA NO GOOGLE
+    if (gmailToken && apiNotEnabled) {
+      return (
+         <div className="pb-20 animate-fade-in px-4 flex flex-col items-center text-center pt-10">
+            <div className="w-20 h-20 bg-red-500/10 rounded-full flex items-center justify-center mb-6 border-2 border-red-500/30 animate-pulse">
+              <AlertTriangle className="w-10 h-10 text-red-500" />
+            </div>
+            <h2 className="text-2xl font-bold text-slate-100 mb-3">Ação Necessária</h2>
+            <p className="text-sm text-slate-300 mb-6 max-w-xs leading-relaxed">
+              O Google bloqueou o acesso porque a <b>Gmail API</b> ainda não foi ativada no seu painel de desenvolvedor.
+            </p>
+
+            <div className="bg-slate-800 p-5 rounded-xl border border-slate-700 w-full max-w-sm text-left space-y-4 mb-6 relative overflow-hidden">
+               <div className="absolute top-0 left-0 w-1 h-full bg-blue-500"></div>
+               <h3 className="font-bold text-white text-sm">Como Resolver (30 segundos):</h3>
+               <ol className="list-decimal pl-4 text-xs text-slate-300 space-y-3">
+                 <li>
+                   Clique no botão abaixo para abrir a Biblioteca do Google.
+                 </li>
+                 <li>
+                   Na página que abrir, clique no botão azul <b className="text-blue-400">ENABLE</b> (ou ATIVAR).
+                 </li>
+                 <li>
+                   Volte aqui e clique em recarregar.
+                 </li>
+               </ol>
+            </div>
+
+            <a 
+               href={`https://console.developers.google.com/apis/library/gmail.googleapis.com?project=${GOOGLE_CLIENT_ID.split('-')[0]}`}
+               target="_blank"
+               rel="noopener noreferrer"
+               className="w-full max-w-sm bg-blue-600 hover:bg-blue-500 text-white font-bold py-4 rounded-xl transition-all shadow-lg shadow-blue-900/30 flex items-center justify-center gap-2 mb-4"
+            >
+               ATIVAR GMAIL API AGORA <ExternalLink className="w-4 h-4" />
+            </a>
+
+            <button 
+              onClick={() => fetchGmail()}
+              className="text-slate-400 text-sm hover:text-white underline underline-offset-4"
+            >
+              Já ativei, tentar novamente
+            </button>
+         </div>
+      );
+    }
 
     if (!gmailToken) {
       return (

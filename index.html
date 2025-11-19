@@ -1,3 +1,14 @@
+<script type="importmap">
+{
+  "imports": {
+    "react/": "https://aistudiocdn.com/react@^19.2.0/",
+    "react": "https://aistudiocdn.com/react@^19.2.0",
+    "@google/genai": "https://aistudiocdn.com/@google/genai@^1.30.0",
+    "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.0/",
+    "lucide-react": "https://aistudiocdn.com/lucide-react@^0.554.0"
+  }
+}
+</script>
 
 <!DOCTYPE html>
 <html lang="pt-BR">
@@ -36,6 +47,9 @@
                 200: '#e2e8f0',
                 100: '#f1f5f9',
                 50: '#f8fafc',
+              },
+              secondary: {
+                DEFAULT: '#38bdf8', // sky-400
               }
             }
           },
@@ -47,6 +61,32 @@
         background-color: #0f172a; /* brand-900 */
         color: #f8fafc; /* brand-50 */
         overscroll-behavior-y: none; /* Previne efeito elástico no mobile */
+        -webkit-tap-highlight-color: transparent;
       }
-      /* Hide scrollbar for clean UI */<link rel="stylesheet" href="/index.css">
-<script type="module" src="/index.tsx"></script>
+      /* Hide scrollbar for clean UI */
+      ::-webkit-scrollbar {
+        width: 0px;
+        background: transparent;
+      }
+      
+      /* Animações */
+      @keyframes fadeIn {
+        from { opacity: 0; transform: translateY(10px); }
+        to { opacity: 1; transform: translateY(0); }
+      }
+      .animate-fade-in {
+        animation: fadeIn 0.4s ease-out forwards;
+      }
+      
+      /* Ajuste para safe area no iPhone X+ */
+      .pb-safe-area {
+        padding-bottom: env(safe-area-inset-bottom, 20px);
+      }
+    </style>
+  <link rel="stylesheet" href="/index.css">
+</head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/index.tsx"></script>
+  </body>
+</html>

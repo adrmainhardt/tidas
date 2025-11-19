@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { DEFAULT_SITES, MOCK_FORMS } from './constants';
 import { SiteConfig, SiteStatus, ViewState, FormSubmission } from './types';
@@ -8,28 +7,31 @@ import TabNav from './components/TabNav';
 import { fetchFormsFromWP, fetchSiteStats } from './services/wpService';
 import { Activity, RefreshCw, AlertTriangle, WifiOff, Trash2, BarChart3 } from 'lucide-react';
 
-// Hooks para persistência
-const usePersistedState = <T,>(key: string, initialValue: T): [T, React.Dispatch<React.SetStateAction<T>>] => {
+// Hook para persistência com segurança extra contra falhas de localStorage
+function usePersistedState<T>(key: string, initialValue: T): [T, React.Dispatch<React.SetStateAction<T>>] {
   const [state, setState] = useState<T>(() => {
     try {
-      const item = localStorage.getItem(key);
+      if (typeof window === 'undefined') return initialValue;
+      const item = window.localStorage.getItem(key);
       return item ? JSON.parse(item) : initialValue;
     } catch (error) {
-      console.error(`Erro ao carregar ${key} do localStorage`, error);
+      console.warn(`Erro ao recuperar chave ${key}:`, error);
       return initialValue;
     }
   });
 
   useEffect(() => {
     try {
-      localStorage.setItem(key, JSON.stringify(state));
+      if (typeof window !== 'undefined') {
+        window.localStorage.setItem(key, JSON.stringify(state));
+      }
     } catch (error) {
-      console.error(`Erro ao salvar ${key} no localStorage`, error);
+      console.warn(`Erro ao salvar chave ${key}:`, error);
     }
   }, [key, state]);
 
   return [state, setState];
-};
+}
 
 const App: React.FC = () => {
   const [currentView, setCurrentView] = useState<ViewState>(ViewState.DASHBOARD);
@@ -38,33 +40,38 @@ const App: React.FC = () => {
   const [isLoadingForms, setIsLoadingForms] = useState(false);
   
   // Persistência de estados de leitura e exclusão
-  const [readFormIds, setReadFormIds] = usePersistedState<string[]>('monitor_read_forms', []);
-  const [deletedFormIds, setDeletedFormIds] = usePersistedState<string[]>('monitor_deleted_forms', []);
+  const [readFormIds, setReadFormIds] = usePersistedState<string[]>('monitor_read_forms_v2', []);
+  const [deletedFormIds, setDeletedFormIds] = usePersistedState<string[]>('monitor_deleted_forms_v2', []);
 
-  // CRUCIAL: Refs para manter acesso ao estado mais recente dentro do syncForms (que roda em intervalo/efeito)
-  // Isso resolve o bug onde os forms apagados voltavam
-  const deletedIdsRef = useRef(deletedFormIds);
-  const readIdsRef = useRef(readFormIds);
+  // Refs para evitar Stale Closures no setInterval/async functions
+  const deletedIdsRef = useRef<string[]>([]);
+  const readIdsRef = useRef<string[]>([]);
 
-  // Mantém os refs sincronizados com o estado
-  useEffect(() => { deletedIdsRef.current = deletedFormIds; }, [deletedFormIds]);
-  useEffect(() => { readIdsRef.current = readFormIds; }, [readFormIds]);
+  // Mantém os refs sempre atualizados
+  useEffect(() => { deletedIdsRef.current = deletedFormIds || []; }, [deletedFormIds]);
+  useEffect(() => { readIdsRef.current = readFormIds || []; }, [readFormIds]);
 
-  // Log para debug de versão
+  // Solicitar permissão de notificação de forma segura
   useEffect(() => {
-    console.log("Monitor App v2.2 - Fix Deleted Forms Persistence");
-  }, []);
-
-  // Solicitar permissão de notificação ao iniciar
-  useEffect(() => {
-    if ('Notification' in window && Notification.permission === 'default') {
-      Notification.requestPermission();
+    try {
+      if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'default') {
+        Notification.requestPermission().catch(err => console.log('Erro permissão notificação:', err));
+      }
+    } catch (e) {
+      console.log('Notificações não suportadas neste ambiente');
     }
   }, []);
 
   const sendNotification = (title: string, body: string) => {
-    if ('Notification' in window && Notification.permission === 'granted') {
-      new Notification(title, { body, icon: 'https://tidas.com.br/wp-content/uploads/2025/08/logo_tidas_rodan2.svg' }); 
+    try {
+      if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
+        new Notification(title, { 
+          body, 
+          icon: 'https://tidas.com.br/wp-content/uploads/2025/11/icoapp.png' 
+        }); 
+      }
+    } catch (e) {
+      console.warn('Falha ao enviar notificação:', e);
     }
   };
 
@@ -74,7 +81,7 @@ const App: React.FC = () => {
     const startTime = performance.now();
 
     try {
-      // 1. Tenta buscar estatísticas via API (Isso serve como check de online também)
+      // 1. Tenta buscar estatísticas via API (Melhor método)
       const stats = await fetchSiteStats(site);
       
       const endTime = performance.now();
@@ -92,10 +99,10 @@ const App: React.FC = () => {
         };
       }
 
-      // 2. Fallback HEAD request
+      // 2. Fallback HEAD request simples
       await fetch(site.url, { 
         method: 'HEAD', 
-        mode: 'no-cors',
+        mode: 'no-cors', // Modo opaco, apenas para ver se não dá erro de rede
         signal: controller.signal 
       });
       
@@ -137,9 +144,12 @@ const App: React.FC = () => {
 
   const checkAllSites = useCallback(async () => {
     setSites(prev => prev.map(s => ({ ...s, status: SiteStatus.CHECKING })));
-    const updatedSites = await Promise.all(sites.map(checkSiteStatus));
-    setSites(updatedSites);
-  }, [sites]);
+    
+    // Importante: Usar o estado atual de sites para iterar, mas atualizar o estado de forma funcional
+    // Como checkSiteStatus é pura em relação ao objeto site passado, podemos usar map
+    const updatedSitesResults = await Promise.all(sites.map(site => checkSiteStatus(site)));
+    setSites(updatedSitesResults);
+  }, [sites]); // Dependência em sites é ok aqui pois só chamamos manualmente ou no mount
 
   const syncForms = async () => {
     setIsLoadingForms(true);
@@ -151,21 +161,27 @@ const App: React.FC = () => {
       
       if (fetchedForms.length > 0) {
         setForms(currentForms => {
-          // CRUCIAL: Usar .current dos refs para garantir que estamos filtrando
-          // usando a lista mais atual de excluídos, não a lista de quando o app abriu.
-          const activeForms = fetchedForms.filter(f => !deletedIdsRef.current.includes(f.id));
+          // Filtra usando o valor mais atual do ref (que reflete o localStorage/estado)
+          const currentDeletedIds = deletedIdsRef.current || [];
+          const currentReadIds = readIdsRef.current || [];
+          
+          // Filtra forms deletados e forms com data inválida para evitar crash na renderização
+          const activeForms = fetchedForms.filter(f => 
+            !currentDeletedIds.includes(f.id) && 
+            f.timestamp instanceof Date && !isNaN(f.timestamp.getTime())
+          );
           
           const processedForms = activeForms.map(f => ({
             ...f,
-            isRead: readIdsRef.current.includes(f.id) ? true : f.isRead
+            isRead: currentReadIds.includes(f.id) ? true : f.isRead
           }));
 
+          // Lógica de notificação para novos forms
           const previousIds = currentForms.map(c => c.id);
-          // Só notifica se for novo E não estiver lido E não estiver na lista de apagados
           const newArrivals = processedForms.filter(p => 
             !previousIds.includes(p.id) && 
             !p.isRead && 
-            !deletedIdsRef.current.includes(p.id)
+            !currentDeletedIds.includes(p.id)
           );
           
           if (newArrivals.length > 0) {
@@ -182,11 +198,31 @@ const App: React.FC = () => {
     }
   };
 
+  // Efeito inicial: verifica sites e forms
   useEffect(() => {
-    checkAllSites();
-    syncForms();
+    // Usamos uma flag para evitar updates em componente desmontado
+    let isMounted = true;
+
+    const init = async () => {
+       if (isMounted) {
+         await checkAllSites(); // Checa status
+         await syncForms();     // Busca forms
+       }
+    };
+
+    init();
+
+    // Configura um intervalo para atualização automática dos forms a cada 60s
+    const intervalId = setInterval(() => {
+      if (isMounted) syncForms();
+    }, 60000);
+
+    return () => {
+      isMounted = false;
+      clearInterval(intervalId);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, []); 
 
   const handleMarkAsRead = (id: string) => {
     if (!readFormIds.includes(id)) {
@@ -199,8 +235,7 @@ const App: React.FC = () => {
     if (!deletedFormIds.includes(id)) {
         setDeletedFormIds(prev => {
           const newState = [...prev, id];
-          // Atualiza o ref imediatamente para garantir sincronia se um fetch ocorrer logo em seguida
-          deletedIdsRef.current = newState; 
+          deletedIdsRef.current = newState; // Atualiza ref imediatamente para garantir sync
           return newState;
         });
         setForms(prev => prev.filter(f => f.id !== id));
@@ -209,6 +244,8 @@ const App: React.FC = () => {
 
   const handleClearRead = () => {
     const readIds = forms.filter(f => f.isRead).map(f => f.id);
+    if (readIds.length === 0) return;
+
     setDeletedFormIds(prev => {
       const newState = [...prev, ...readIds];
       deletedIdsRef.current = newState;
@@ -280,7 +317,7 @@ const App: React.FC = () => {
       <div className="flex justify-between items-center mb-6 px-1">
         <h2 className="text-xl font-bold text-slate-100">Meus Sites</h2>
         <button 
-          onClick={checkAllSites}
+          onClick={() => checkAllSites()}
           className="p-2 bg-brand-secondary/20 text-brand-secondary rounded-full hover:bg-brand-secondary/30 transition-colors"
         >
           <RefreshCw className="w-5 h-5" />
@@ -352,7 +389,7 @@ const App: React.FC = () => {
           <img 
             src="https://tidas.com.br/wp-content/uploads/2025/08/logo_tidas_rodan2.svg" 
             alt="Tidas" 
-            className="h-8 w-auto object-contain py-0.5"
+            className="h-12 w-auto object-contain py-0.5"
           />
         </div>
       </div>

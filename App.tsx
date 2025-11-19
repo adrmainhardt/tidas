@@ -171,7 +171,7 @@ const App: React.FC = () => {
       if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
          new Notification(title, { 
            body, 
-           icon: 'https://tidas.com.br/wp-content/uploads/2025/11/icoapp.png',
+           icon: 'https://tidas.com.br/wp-content/uploads/2025/08/logo_tidas_rodan2.svg',
            tag: title + Date.now() 
          }); 
       }
@@ -559,6 +559,16 @@ const App: React.FC = () => {
 
     return (
       <div className="space-y-6 animate-fade-in">
+        {/* Header com Logo - Centralizada e sem texto */}
+        <div className="flex justify-center items-center mb-6">
+           <img 
+             src="https://tidas.com.br/wp-content/uploads/2025/08/logo_tidas_rodan2.svg" 
+             alt="Tidas" 
+             onClick={() => setCurrentView(ViewState.DASHBOARD)}
+             className="h-[1.6rem] w-auto drop-shadow-md cursor-pointer hover:opacity-80 transition-opacity" 
+           />
+        </div>
+
         <div className="grid grid-cols-2 gap-4">
           <div 
             onClick={() => setCurrentView(ViewState.SITES)}

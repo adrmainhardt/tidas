@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { DEFAULT_SITES, MOCK_FORMS, GOOGLE_CLIENT_ID } from './constants';
 import { SiteConfig, SiteStatus, ViewState, FormSubmission, EmailMessage } from './types';
@@ -258,7 +259,13 @@ const App: React.FC = () => {
              sendNotification('Novo Formulário', `Você recebeu ${newArrivals.length} nova(s) mensagem(ns).`);
           }
 
-          return processedForms.sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
+          // Ordenação: Primeiro os NÃO LIDOS, depois pela Data (mais recente)
+          return processedForms.sort((a, b) => {
+            if (a.isRead !== b.isRead) {
+              return a.isRead ? 1 : -1; // False (Não lido) vem primeiro
+            }
+            return b.timestamp.getTime() - a.timestamp.getTime();
+          });
         });
       }
     } catch (e) {
@@ -275,7 +282,8 @@ const App: React.FC = () => {
     
     setIsLoadingGmail(true);
     try {
-      const messages = await fetchGmailMessages(token);
+      // Busca 60 mensagens para garantir que não lidos apareçam
+      const messages = await fetchGmailMessages(token, 60);
       setEmails(messages);
     } catch (error: any) {
       console.error("Erro ao carregar Gmail:", error);
@@ -356,7 +364,10 @@ const App: React.FC = () => {
 
   const handleMarkAsRead = (id: string) => {
     if (!readFormIds.includes(id)) {
-      setReadFormIds(prev => [...prev, id]);
+      const newReadIds = [...readFormIds, id];
+      setReadFormIds(newReadIds);
+      readIdsRef.current = newReadIds; // Atualiza ref imediatamente
+      
       setForms(prev => prev.map(f => f.id === id ? { ...f, isRead: true } : f));
     }
   };
@@ -685,7 +696,7 @@ const App: React.FC = () => {
       <div className="pb-20 animate-fade-in">
         <div className="flex justify-between items-center mb-6 px-1">
           <div className="flex items-center gap-2">
-            <h2 className="text-xl font-bold text-slate-100">Caixa de Entrada</h2>
+            <h2 className="text-xl font-bold text-slate-100">E-Mail Tidas</h2>
             <span className="text-xs bg-red-500/20 text-red-300 px-2 py-1 rounded-full">{emails.filter(e => e.isUnread).length} novos</span>
           </div>
           <div className="flex gap-2">

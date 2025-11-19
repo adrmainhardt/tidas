@@ -32,15 +32,17 @@ interface GmailListResponse {
 /**
  * Busca os e-mails mais recentes da caixa de entrada.
  */
-export const fetchGmailMessages = async (accessToken: string, maxResults: number = 10): Promise<EmailMessage[]> => {
+export const fetchGmailMessages = async (accessToken: string, maxResults: number = 60): Promise<EmailMessage[]> => {
   try {
     // 1. Buscar lista de IDs de mensagens na Inbox
-    // cache: 'no-store' é CRUCIAL na Vercel/Mobile para evitar que ele mostre dados antigos
+    // Alterado para 'in:inbox' que é mais robusto que 'label:INBOX'
+    // Adicionado timestamp e nonce aleatório para garantir que o navegador não use cache
+    const nonce = Math.random().toString(36).substring(7);
     const listResponse = await fetch(
-      `${GMAIL_API_BASE}/messages?maxResults=${maxResults}&q=label:inbox&_=${Date.now()}`,
+      `${GMAIL_API_BASE}/messages?maxResults=${maxResults}&q=in:inbox&_=${Date.now()}&nonce=${nonce}`,
       {
         method: 'GET',
-        cache: 'no-store', // Força o navegador a não usar cache
+        cache: 'no-store', // CRUCIAL: Força o navegador a ir na rede
         headers: {
           Authorization: `Bearer ${accessToken}`,
           'Content-Type': 'application/json',
@@ -65,8 +67,9 @@ export const fetchGmailMessages = async (accessToken: string, maxResults: number
     }
 
     // 2. Buscar detalhes de cada mensagem (em paralelo)
+    // Adicionado nonce individual para cada request
     const detailsPromises = listData.messages.map(msg => 
-      fetch(`${GMAIL_API_BASE}/messages/${msg.id}`, {
+      fetch(`${GMAIL_API_BASE}/messages/${msg.id}?_=${Date.now()}`, {
         cache: 'no-store',
         headers: { Authorization: `Bearer ${accessToken}` }
       }).then(res => res.json() as Promise<GmailMessageDetail>)

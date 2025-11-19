@@ -451,8 +451,8 @@ const App: React.FC = () => {
                <Mail className="w-5 h-5 text-red-400" />
              </div>
              <div>
-               <h3 className="text-sm font-semibold text-slate-100">Gmail Monitor</h3>
-               <p className="text-xs text-slate-400">{gmailToken ? (unreadEmailsCount > 0 ? `${unreadEmailsCount} não lidos` : 'Tudo limpo') : 'Não conectado'}</p>
+               <h3 className="text-sm font-semibold text-slate-100">E-Mail Tidas</h3>
+               <p className="text-xs text-slate-400">{gmailToken ? (unreadEmailsCount > 0 ? `${unreadEmailsCount} não lidos` : 'Sem e-mails não lidos') : 'Não conectado'}</p>
              </div>
            </div>
            {gmailToken && unreadEmailsCount > 0 && (
@@ -560,7 +560,7 @@ const App: React.FC = () => {
           <div className="w-20 h-20 bg-slate-800 rounded-full flex items-center justify-center mb-6 border border-slate-700">
             <Mail className="w-10 h-10 text-red-500" />
           </div>
-          <h2 className="text-2xl font-bold text-slate-100 mb-3">Conectar Gmail</h2>
+          <h2 className="text-2xl font-bold text-slate-100 mb-3">Conectar E-Mail Tidas</h2>
           <p className="text-sm text-slate-400 mb-6 leading-relaxed">
             Monitore e-mails importantes diretamente por aqui.
           </p>

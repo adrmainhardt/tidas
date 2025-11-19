@@ -18,7 +18,7 @@ const TabNav: React.FC<TabNavProps> = ({ currentView, onChangeView, badges }) =>
     { id: ViewState.DASHBOARD, label: 'Início', icon: LayoutDashboard },
     { id: ViewState.SITES, label: 'Sites', icon: Globe, badge: badges.sites },
     { id: ViewState.FORMS, label: 'Forms', icon: MessageSquareText, badgeCount: badges.forms },
-    { id: ViewState.GMAIL, label: 'Gmail', icon: Mail, badgeCount: badges.gmail },
+    { id: ViewState.GMAIL, label: 'E-Mail', icon: Mail, badgeCount: badges.gmail },
   ];
 
   return (

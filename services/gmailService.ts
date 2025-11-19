@@ -9,6 +9,7 @@ interface GmailHeader {
 }
 
 interface GmailMessagePart {
+  mimeType: string;
   headers: GmailHeader[];
   body?: { data?: string };
   parts?: GmailMessagePart[];
@@ -104,6 +105,68 @@ export const fetchGmailMessages = async (accessToken: string, maxResults: number
 };
 
 /**
+ * Decodifica Base64Url para String UTF-8
+ */
+const decodeBase64 = (data: string): string => {
+  try {
+    // Substitui caracteres do Base64Url para Base64 padrão
+    const base64 = data.replace(/-/g, '+').replace(/_/g, '/');
+    // Decodifica e lida com caracteres UTF-8 corretamente
+    const binaryString = atob(base64);
+    const bytes = new Uint8Array(binaryString.length);
+    for (let i = 0; i < binaryString.length; i++) {
+      bytes[i] = binaryString.charCodeAt(i);
+    }
+    return new TextDecoder().decode(bytes);
+  } catch (e) {
+    console.error("Erro ao decodificar email body", e);
+    return "Erro ao exibir conteúdo.";
+  }
+};
+
+/**
+ * Encontra recursivamente o corpo da mensagem (prefere HTML, fallback para Plain Text)
+ */
+const findBody = (payload: GmailMessagePart): string => {
+  // 1. Se o payload já tem body data e é texto/html
+  if (payload.body?.data && payload.mimeType === 'text/html') {
+    return decodeBase64(payload.body.data);
+  }
+  
+  // 2. Se o payload já tem body data e é texto/plain (fallback se não acharmos html ainda)
+  if (payload.body?.data && payload.mimeType === 'text/plain') {
+     return decodeBase64(payload.body.data);
+  }
+
+  // 3. Se tem partes, procura recursivamente
+  if (payload.parts) {
+    // Tenta achar HTML primeiro nas partes
+    let htmlPart = payload.parts.find(p => p.mimeType === 'text/html');
+    if (htmlPart && htmlPart.body?.data) {
+       return decodeBase64(htmlPart.body.data);
+    }
+    
+    // Se tiver partes aninhadas dentro das partes (ex: multipart/alternative dentro de multipart/mixed)
+    for (const part of payload.parts) {
+       // Evita loop infinito simples, desce apenas se for container
+       if (part.mimeType.startsWith('multipart/')) {
+          const found = findBody(part);
+          if (found) return found;
+       }
+    }
+
+    // Fallback para plain text nas partes
+    let textPart = payload.parts.find(p => p.mimeType === 'text/plain');
+    if (textPart && textPart.body?.data) {
+      return decodeBase64(textPart.body.data);
+    }
+  }
+
+  return "";
+};
+
+
+/**
  * Helper para extrair dados relevantes do JSON complexo do Gmail.
  */
 const parseGmailMessage = (msg: GmailMessageDetail): EmailMessage => {
@@ -125,11 +188,15 @@ const parseGmailMessage = (msg: GmailMessageDetail): EmailMessage => {
   if (labelIds.includes('CATEGORY_UPDATES')) label = 'Updates';
   if (labelIds.includes('CATEGORY_PROMOTIONS')) label = 'Promotions';
 
+  // Extrai o corpo
+  const body = findBody(msg.payload) || msg.snippet || "(Sem conteúdo)";
+
   return {
     id: msg.id,
     sender: cleanSender || from,
     subject: subject,
     snippet: msg.snippet || '', 
+    body: body,
     date: new Date(parseInt(msg.internalDate)),
     isUnread,
     label

@@ -33,6 +33,7 @@ export interface EmailMessage {
   sender: string;
   subject: string;
   snippet: string;
+  body: string; // Conteúdo completo HTML ou Texto
   date: Date;
   isUnread: boolean;
   label: 'Primary' | 'Updates' | 'Promotions';

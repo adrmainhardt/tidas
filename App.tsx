@@ -4,13 +4,15 @@ import { DEFAULT_SITES, MOCK_FORMS, GOOGLE_CLIENT_ID } from './constants';
 import { SiteConfig, SiteStatus, ViewState, FormSubmission, EmailMessage, TrelloBoard, TrelloList, TrelloCard } from './types';
 import MonitorCard from './components/MonitorCard';
 import InboxItem from './components/InboxItem';
+import EmailItem from './components/EmailItem';
 import TabNav from './components/TabNav';
 import FormDetailsModal from './components/FormDetailsModal';
+import EmailDetailsModal from './components/EmailDetailsModal';
 import TrelloCardItem from './components/TrelloCardItem';
 import { fetchFormsFromWP, fetchSiteStats } from './services/wpService';
 import { fetchGmailMessages } from './services/gmailService';
 import { fetchBoards, fetchLists, fetchCardsFromList } from './services/trelloService';
-import { Activity, RefreshCw, AlertTriangle, WifiOff, Trash2, BarChart3, Mail, LogIn, Star, Copy, Info, Check, ShieldCheck, Trello, Settings, CheckSquare, ExternalLink, Filter, HelpCircle } from 'lucide-react';
+import { Activity, RefreshCw, AlertTriangle, WifiOff, Trash2, BarChart3, Mail, LogIn, LogOut, Star, Copy, Info, Check, ShieldCheck, Trello, Settings, CheckSquare, ExternalLink, Filter, HelpCircle } from 'lucide-react';
 
 // Declaração global para o Google Identity Services
 declare global {
@@ -63,8 +65,9 @@ const App: React.FC = () => {
   const [copyFeedback, setCopyFeedback] = useState(false);
   const [authError, setAuthError] = useState<boolean>(false); 
   const [authErrorType, setAuthErrorType] = useState<string | null>(null);
-  const [apiNotEnabled, setApiNotEnabled] = useState<boolean>(false); // NOVO: Controle de API Desligada
+  const [apiNotEnabled, setApiNotEnabled] = useState<boolean>(false);
   const [showHelp, setShowHelp] = useState(false);
+  const [selectedEmailId, setSelectedEmailId] = useState<string | null>(null);
   const tokenClient = useRef<any>(null);
 
   // Trello States
@@ -115,7 +118,7 @@ const App: React.FC = () => {
           tokenClient.current = window.google.accounts.oauth2.initTokenClient({
             client_id: GOOGLE_CLIENT_ID,
             scope: 'https://www.googleapis.com/auth/gmail.readonly',
-            prompt: 'consent', // Força tela de consentimento para debug
+            prompt: 'consent',
             callback: (response: any) => {
               if (response.access_token) {
                 setGmailToken(response.access_token);
@@ -143,7 +146,6 @@ const App: React.FC = () => {
       }
     };
 
-    // Tenta inicializar e configura um retry caso o script ainda não tenha carregado
     const timer = setInterval(() => {
       if (window.google) {
         initGoogleAuth();
@@ -171,7 +173,7 @@ const App: React.FC = () => {
          new Notification(title, { 
            body, 
            icon: 'https://tidas.com.br/wp-content/uploads/2025/11/icoapp.png',
-           tag: title + Date.now() // Tag única para garantir que todas apareçam
+           tag: title + Date.now() 
          }); 
       }
     } catch (e) {
@@ -275,7 +277,6 @@ const App: React.FC = () => {
             f.timestamp instanceof Date && !isNaN(f.timestamp.getTime())
           );
           
-          // Aplica o estado de lido baseado na persistência
           const processedForms = activeForms.map(f => ({
             ...f,
             isRead: currentReadIds.includes(f.id) ? true : f.isRead
@@ -292,12 +293,10 @@ const App: React.FC = () => {
              sendNotification('Novo Formulário', `Você recebeu ${newArrivals.length} nova(s) mensagem(ns).`);
           }
 
-          // Ordenação CRUCIAL: Primeiro os NÃO LIDOS, depois os mais recentes
           return processedForms.sort((a, b) => {
             if (a.isRead !== b.isRead) {
-              return a.isRead ? 1 : -1; // False (Não lido/Novo) vem primeiro (-1)
+              return a.isRead ? 1 : -1;
             }
-            // Se ambos forem iguais (ambos lidos ou ambos novos), ordena por data
             return b.timestamp.getTime() - a.timestamp.getTime();
           });
         });
@@ -309,43 +308,31 @@ const App: React.FC = () => {
     }
   };
 
-  // Fetch Real do Gmail
   const fetchGmail = async (tokenOverride?: string) => {
     const token = tokenOverride || gmailToken;
     if (!token) return;
     
     setIsLoadingGmail(true);
-    // Não resetamos apiNotEnabled aqui para não piscar a tela se já sabemos que está com erro
-    // setApiNotEnabled(false); 
 
     try {
-      // Busca 60 mensagens para garantir que novos e-mails não fiquem de fora
       const messages = await fetchGmailMessages(token, 80);
-      
-      // Se deu sucesso, garantimos que o erro de API suma
       setApiNotEnabled(false);
 
-      // Notificação de novos e-mails
       const currentUnread = messages.filter(m => m.isUnread);
       const newUnread = currentUnread.filter(m => !prevEmailIdsRef.current.includes(m.id));
 
-      // Verifica se temos dados anteriores para não notificar no primeiro carregamento
       if (prevEmailIdsRef.current.length > 0 && newUnread.length > 0) {
          sendNotification('Novo E-mail', `Você recebeu ${newUnread.length} novo(s) e-mail(s) importante(s).`);
       }
       
-      // Atualiza ref para a próxima verificação
       prevEmailIdsRef.current = messages.map(m => m.id);
-
       setEmails(messages);
     } catch (error: any) {
       console.error("Erro ao carregar Gmail:", error);
-      
-      // Fallback robusto: Se a mensagem for API_NOT_ENABLED ou contiver o código 403 (que não seja auth expired)
       if (error.message === 'API_NOT_ENABLED' || (error.message && error.message.includes('403'))) {
         setApiNotEnabled(true);
       } else if (error.message === 'AUTH_EXPIRED') {
-        setGmailToken(null); // Força re-login
+        setGmailToken(null);
         setApiNotEnabled(false);
       }
     } finally {
@@ -353,7 +340,6 @@ const App: React.FC = () => {
     }
   };
 
-  // Trello Logic
   const loadTrelloBoards = async () => {
     if (!trelloKey || !trelloToken) return;
     setIsLoadingTrello(true);
@@ -369,7 +355,6 @@ const App: React.FC = () => {
   };
 
   const loadTrelloLists = async (boardId: string) => {
-    // Se já estiver carregando, não duplicar, a menos que seja forçado
     setIsLoadingTrello(true);
     try {
       const lists = await fetchLists(trelloKey, trelloToken, boardId);
@@ -387,18 +372,14 @@ const App: React.FC = () => {
     if (!trelloKey || !trelloToken || !trelloListIds.length) return;
     setIsLoadingTrello(true);
     try {
-      // Se availableLists estiver vazio (ex: refresh da página), precisamos buscar as listas para saber os nomes
       let currentAvailableLists = availableLists;
       if (availableLists.length === 0 && trelloBoardId) {
          currentAvailableLists = await loadTrelloLists(trelloBoardId);
       }
 
       const allCards: TrelloCard[] = [];
-      // Busca cards de cada lista selecionada em paralelo
       const promises = trelloListIds.map(async listId => {
           const cards = await fetchCardsFromList(trelloKey, trelloToken, listId);
-          
-          // Tenta achar o nome da lista para exibir no card
           const listName = currentAvailableLists.find(l => l.id === listId)?.name || 'Lista';
           return cards.map(c => ({ ...c, listName }));
       });
@@ -406,18 +387,11 @@ const App: React.FC = () => {
       const results = await Promise.all(promises);
       results.forEach(listCards => allCards.push(...listCards));
       
-      // Notificação de novos cartões
       const newCards = allCards.filter(c => !prevTrelloCardIdsRef.current.includes(c.id));
-      
-      // Verifica se temos dados anteriores para não notificar no primeiro carregamento
       if (prevTrelloCardIdsRef.current.length > 0 && newCards.length > 0) {
          sendNotification('Trello: Nova Atividade', `${newCards.length} novo(s) cartão(ões) adicionado(s).`);
       }
-
-      // Atualiza ref
       prevTrelloCardIdsRef.current = allCards.map(c => c.id);
-
-      // Ordenar por data de atividade (mais recente no topo)
       setTrelloCards(allCards.sort((a, b) => b.dateLastActivity.getTime() - a.dateLastActivity.getTime()));
     } catch (e) {
       console.error("Erro Trello Cards", e);
@@ -426,14 +400,12 @@ const App: React.FC = () => {
     }
   };
 
-  // Efeito para carregar dados do Trello inicial
   useEffect(() => {
     if (trelloKey && trelloToken && trelloBoardId && availableLists.length === 0) {
       loadTrelloLists(trelloBoardId);
     }
   }, [trelloBoardId]);
 
-  // Efeito para carregar cards Trello periodicamente se configurado
   useEffect(() => {
     if (currentView === ViewState.TRELLO && trelloKey && trelloToken && trelloListIds.length > 0) {
       fetchTrelloCards();
@@ -478,7 +450,6 @@ const App: React.FC = () => {
     }
   };
 
-  // Efeito inicial e Loop de Monitoramento
   useEffect(() => {
     let isMounted = true;
 
@@ -486,7 +457,6 @@ const App: React.FC = () => {
        if (isMounted) {
          await checkAllSites();
          await syncForms();
-         // Se tiver token, busca e-mail imediatamente
          if (gmailToken) fetchGmail(gmailToken);
        }
     };
@@ -501,9 +471,8 @@ const App: React.FC = () => {
         setSites(updatedResults);
         
         if (gmailToken) fetchGmail(gmailToken);
-        // Refresh Trello if active
         if (trelloKey && trelloToken && trelloListIds.length > 0) {
-            fetchTrelloCards(); // Background refresh
+            fetchTrelloCards(); 
         }
       }
     }, 60000);
@@ -512,17 +481,15 @@ const App: React.FC = () => {
       isMounted = false;
       clearInterval(intervalId);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [gmailToken]); 
 
   const handleMarkAsRead = (id: string) => {
     if (!readFormIds.includes(id)) {
       const newReadIds = [...readFormIds, id];
       setReadFormIds(newReadIds);
-      readIdsRef.current = newReadIds; // Atualiza ref imediatamente
+      readIdsRef.current = newReadIds;
       
       setForms(prev => {
-         // Atualiza o estado local e reordena (lidos vão pro fim)
          const updated = prev.map(f => f.id === id ? { ...f, isRead: true } : f);
          return updated.sort((a, b) => {
             if (a.isRead !== b.isRead) return a.isRead ? 1 : -1;
@@ -564,6 +531,15 @@ const App: React.FC = () => {
     setForms(prev => prev.filter(f => !f.isRead));
   };
 
+  const handleOpenEmail = (email: EmailMessage) => {
+      setSelectedEmailId(email.id);
+      setEmails(prev => prev.map(e => e.id === email.id ? { ...e, isUnread: false } : e));
+  };
+
+  const handleDismissEmail = (id: string) => {
+      setEmails(prev => prev.filter(e => e.id !== id));
+  };
+
   const copyOriginToClipboard = () => {
     const origin = window.location.origin;
     navigator.clipboard.writeText(origin).then(() => {
@@ -577,6 +553,7 @@ const App: React.FC = () => {
   const unreadEmailsCount = emails.filter(e => e.isUnread).length;
   
   const selectedForm = forms.find(f => f.id === selectedFormId);
+  const selectedEmail = emails.find(e => e.id === selectedEmailId);
 
   const renderDashboard = () => {
     const onlineCount = sites.filter(s => s.status === SiteStatus.ONLINE).length;
@@ -612,7 +589,6 @@ const App: React.FC = () => {
           </div>
         </div>
         
-        {/* Gmail Widget no Dashboard */}
         <div 
           onClick={() => setCurrentView(ViewState.GMAIL)}
           className="bg-slate-800 p-4 rounded-2xl border border-slate-700 shadow-sm cursor-pointer hover:bg-slate-700 active:scale-95 transition-all flex justify-between items-center"
@@ -631,7 +607,6 @@ const App: React.FC = () => {
            )}
         </div>
 
-         {/* Trello Widget no Dashboard */}
          <div 
           onClick={() => setCurrentView(ViewState.TRELLO)}
           className="bg-slate-800 p-4 rounded-2xl border border-slate-700 shadow-sm cursor-pointer hover:bg-slate-700 active:scale-95 transition-all flex justify-between items-center"
@@ -743,13 +718,11 @@ const App: React.FC = () => {
   );
 
   const renderTrello = () => {
-    // Estado 1: Configuração de API Key
     if (isConfiguringTrello || !trelloKey || !trelloToken) {
       return (
         <div className="pb-20 animate-fade-in px-4">
            <h2 className="text-xl font-bold text-slate-100 mb-4">Configurar Trello</h2>
            
-           {/* Help Box */}
            <div className="bg-blue-500/10 border border-blue-500/20 p-4 rounded-xl mb-6">
               <h3 className="text-sm font-bold text-blue-400 mb-2 flex items-center gap-2">
                  <Info className="w-4 h-4" /> Instruções
@@ -764,7 +737,6 @@ const App: React.FC = () => {
            </div>
 
            <div className="bg-slate-800 p-4 rounded-xl border border-slate-700 space-y-5">
-              {/* API Key Field */}
               <div>
                 <label className="block text-xs font-semibold text-slate-300 mb-1.5">1. API Key</label>
                 <div className="flex gap-2 mb-2">
@@ -785,7 +757,6 @@ const App: React.FC = () => {
                 </a>
               </div>
               
-              {/* Token Field */}
               <div className={`transition-opacity duration-300 ${!trelloKey ? 'opacity-50' : 'opacity-100'}`}>
                 <label className="block text-xs font-semibold text-slate-300 mb-1.5">2. Token</label>
                 <input 
@@ -827,7 +798,6 @@ const App: React.FC = () => {
       );
     }
 
-    // Estado 2: Seleção de Listas
     if (!trelloBoardId || isSelectingLists) {
       return (
         <div className="pb-20 animate-fade-in px-4">
@@ -902,241 +872,134 @@ const App: React.FC = () => {
       );
     }
 
-    // Filter Logic for State 3
-    const uniqueLists = trelloListIds.map((id, idx) => {
-         const fromCard = trelloCards.find(c => c.listId === id)?.listName;
-         const fromAvailable = availableLists.find(l => l.id === id)?.name;
-         return { 
-           id, 
-           name: fromCard || fromAvailable || 'Lista',
-           colorName: TRELLO_COLORS[idx % TRELLO_COLORS.length]
-         };
+    const uniqueLists = trelloListIds.map(id => {
+      const listName = availableLists.find(l => l.id === id)?.name || 
+                       trelloCards.find(c => c.listId === id)?.listName || 
+                       'Lista Carregando...';
+      return { id, name: listName };
     });
 
-    const filteredCards = activeTrelloFilter === 'ALL' 
-        ? trelloCards 
-        : trelloCards.filter(c => c.listId === activeTrelloFilter);
-
-    const getCardColorName = (listId: string) => {
-        const listIndex = uniqueLists.findIndex(l => l.id === listId);
-        return listIndex >= 0 ? uniqueLists[listIndex].colorName : 'slate';
-    };
+    const filteredCards = trelloCards.filter(card => {
+      if (activeTrelloFilter === 'ALL') return true;
+      return card.listId === activeTrelloFilter;
+    });
 
     return (
-      <div className="pb-20 animate-fade-in flex flex-col h-full">
-        <div className="flex justify-between items-center mb-4 px-1 shrink-0">
-          <div className="flex items-center gap-2">
-            <h2 className="text-xl font-bold text-slate-100">Trello</h2>
-          </div>
-          <div className="flex gap-2">
-             <button onClick={() => { setIsSelectingLists(true); }} className="p-2 text-slate-500 hover:text-white bg-slate-800 rounded-full">
-               <Settings className="w-4 h-4" />
-             </button>
-             <button onClick={fetchTrelloCards} className={`p-2 bg-slate-800 rounded-full text-slate-300 hover:bg-slate-700 ${isLoadingTrello ? 'animate-spin' : ''}`}>
-               <RefreshCw className="w-4 h-4" />
-             </button>
-          </div>
-        </div>
+      <div className="pb-20 animate-fade-in">
+         <div className="flex justify-between items-center mb-4 px-1">
+            <div className="flex items-center gap-2">
+              <h2 className="text-xl font-bold text-slate-100">Quadro Trello</h2>
+              <span className="text-xs bg-slate-800 text-slate-400 px-2 py-1 rounded-full">{trelloCards.length}</span>
+            </div>
+            <div className="flex gap-2">
+                <button onClick={() => setIsSelectingLists(true)} className="p-2 text-slate-400 hover:text-blue-400"><Settings className="w-5 h-5" /></button>
+                <button onClick={fetchTrelloCards} className={`p-2 bg-blue-500/20 text-blue-400 rounded-full ${isLoadingTrello ? 'animate-spin' : ''}`}><RefreshCw className="w-4 h-4" /></button>
+            </div>
+         </div>
 
-        {/* Filter Tabs */}
-        <div className="flex gap-2 mb-4 overflow-x-auto pb-2 shrink-0 no-scrollbar">
-           <button 
+         <div className="flex gap-2 overflow-x-auto pb-4 mb-2 scrollbar-hide px-1">
+            <button 
               onClick={() => setActiveTrelloFilter('ALL')}
-              className={`whitespace-nowrap px-4 py-2 rounded-full text-xs font-bold transition-colors border ${activeTrelloFilter === 'ALL' ? 'bg-white text-slate-900 border-white' : 'bg-slate-800 text-slate-400 border-slate-700 hover:border-slate-500'}`}
-           >
-              Todos ({trelloCards.length})
-           </button>
-           {uniqueLists.map((list) => {
-              const count = trelloCards.filter(c => c.listId === list.id).length;
-              const colorMap: Record<string, string> = {
-                blue: 'bg-blue-500 border-blue-500',
-                amber: 'bg-amber-500 border-amber-500',
-                emerald: 'bg-emerald-500 border-emerald-500',
-                purple: 'bg-purple-500 border-purple-500',
-                rose: 'bg-rose-500 border-rose-500',
-                cyan: 'bg-cyan-500 border-cyan-500',
-                indigo: 'bg-indigo-500 border-indigo-500',
-                lime: 'bg-lime-500 border-lime-500',
-              };
-              const activeClass = colorMap[list.colorName] || 'bg-slate-500';
+              className={`whitespace-nowrap px-3 py-1.5 rounded-lg text-xs font-bold transition-colors ${activeTrelloFilter === 'ALL' ? 'bg-blue-600 text-white' : 'bg-slate-800 text-slate-400 border border-slate-700'}`}
+            >
+              Todos
+            </button>
+            {uniqueLists.map((list, idx) => (
+               <button
+                 key={list.id}
+                 onClick={() => setActiveTrelloFilter(list.id)}
+                 className={`whitespace-nowrap px-3 py-1.5 rounded-lg text-xs font-bold transition-colors ${activeTrelloFilter === list.id ? 'bg-slate-200 text-slate-900' : 'bg-slate-800 text-slate-400 border border-slate-700'}`}
+               >
+                 {list.name}
+               </button>
+            ))}
+         </div>
 
-              return (
-                <button 
-                    key={list.id}
-                    onClick={() => setActiveTrelloFilter(list.id)}
-                    className={`whitespace-nowrap px-4 py-2 rounded-full text-xs font-bold transition-colors border flex items-center gap-2 
-                        ${activeTrelloFilter === list.id 
-                            ? `${activeClass} text-white` 
-                            : 'bg-slate-800 text-slate-400 border-slate-700 hover:border-slate-500'}`}
-                >
-                    {list.name} <span className="bg-black/20 px-1.5 rounded-full text-[10px]">{count}</span>
-                </button>
-              );
-           })}
-        </div>
-
-        {/* Cards List */}
-        <div className="flex-1 overflow-y-auto min-h-0">
-            {filteredCards.length === 0 && !isLoadingTrello ? (
+         {filteredCards.length === 0 && (
             <div className="text-center py-10 text-slate-500">
-                <Filter className="w-10 h-10 mx-auto mb-3 opacity-30" />
-                <p>Nenhum cartão encontrado nesta lista.</p>
+               <p>Nenhum cartão encontrado nesta visualização.</p>
             </div>
-            ) : (
-            <div className="space-y-3 pb-4">
-                {filteredCards.map(card => (
-                <TrelloCardItem 
-                    key={card.id} 
-                    card={card} 
-                    listColorName={getCardColorName(card.listId)}
-                />
-                ))}
-            </div>
-            )}
-        </div>
+         )}
+
+         {filteredCards.map(card => {
+             const listIndex = trelloListIds.indexOf(card.listId);
+             const colorName = TRELLO_COLORS[listIndex % TRELLO_COLORS.length] || 'slate';
+             
+             return (
+               <TrelloCardItem 
+                 key={card.id} 
+                 card={card} 
+                 listColorName={colorName}
+               />
+             );
+         })}
       </div>
     );
   };
 
   const renderGmail = () => {
-    // CENA DE ERRO CRÍTICO: API NÃO ATIVADA NO GOOGLE
-    if (gmailToken && apiNotEnabled) {
-      return (
-         <div className="pb-20 animate-fade-in px-4 flex flex-col items-center text-center pt-10">
-            <div className="w-20 h-20 bg-red-500/10 rounded-full flex items-center justify-center mb-6 border-2 border-red-500/30 animate-pulse">
-              <AlertTriangle className="w-10 h-10 text-red-500" />
-            </div>
-            <h2 className="text-2xl font-bold text-slate-100 mb-3">Ação Necessária</h2>
-            <p className="text-sm text-slate-300 mb-6 max-w-xs leading-relaxed">
-              O Google bloqueou o acesso porque a <b>Gmail API</b> ainda não foi ativada no seu painel de desenvolvedor.
-            </p>
-
-            <div className="bg-slate-800 p-5 rounded-xl border border-slate-700 w-full max-w-sm text-left space-y-4 mb-6 relative overflow-hidden">
-               <div className="absolute top-0 left-0 w-1 h-full bg-blue-500"></div>
-               <h3 className="font-bold text-white text-sm">Como Resolver (30 segundos):</h3>
-               <ol className="list-decimal pl-4 text-xs text-slate-300 space-y-3">
-                 <li>
-                   Clique no botão abaixo.
-                 </li>
-                 <li>
-                   Na página que abrir, clique no botão azul <b className="text-blue-400">ENABLE</b> (ou ATIVAR).
-                 </li>
-                 <li>
-                   Volte aqui e clique em recarregar.
-                 </li>
-               </ol>
-            </div>
-
-            <a 
-               href={`https://console.developers.google.com/apis/api/gmail.googleapis.com/overview?project=${GOOGLE_CLIENT_ID.split('-')[0]}`}
-               target="_blank"
-               rel="noopener noreferrer"
-               className="w-full max-w-sm bg-blue-600 hover:bg-blue-500 text-white font-bold py-4 rounded-xl transition-all shadow-lg shadow-blue-900/30 flex items-center justify-center gap-2 mb-4"
-            >
-               ATIVAR GMAIL API AGORA <ExternalLink className="w-4 h-4" />
-            </a>
-
-            <div className="text-[10px] text-slate-500 max-w-xs">
-              <p>Se o botão acima não funcionar, acesse o <a href="https://console.cloud.google.com/" target="_blank" className="text-slate-400 underline">Google Cloud Console</a>, selecione o projeto e busque por "Gmail API" na biblioteca.</p>
-            </div>
-
-            <button 
-              onClick={() => fetchGmail()}
-              className="text-slate-400 text-sm hover:text-white underline underline-offset-4 mt-6"
-            >
-              Já ativei, tentar novamente
-            </button>
-         </div>
-      );
-    }
-
     if (!gmailToken) {
       return (
-        <div className="pb-20 animate-fade-in flex flex-col items-center justify-center min-h-[70vh] px-6 text-center">
-          <div className="w-20 h-20 bg-slate-800 rounded-full flex items-center justify-center mb-6 border border-slate-700">
+        <div className="flex flex-col items-center justify-center h-[80vh] px-6 text-center animate-fade-in">
+          <div className="w-20 h-20 bg-slate-800 rounded-full flex items-center justify-center mb-6 shadow-xl border border-slate-700">
             <Mail className="w-10 h-10 text-red-500" />
           </div>
-          <h2 className="text-2xl font-bold text-slate-100 mb-3">Conectar E-Mail</h2>
-          <p className="text-sm text-slate-400 mb-6 leading-relaxed">
+          <h2 className="text-2xl font-bold text-slate-100 mb-2">Conectar E-Mail</h2>
+          <p className="text-slate-400 mb-8 max-w-xs">
             Monitore e-mails importantes diretamente por aqui.
           </p>
 
-          {/* Área de Ajuda e Erro Expandida */}
-          {authError ? (
-            <div className="rounded-lg p-4 border mb-6 w-full text-left transition-all duration-500 bg-red-900/20 border-red-500 shadow-[0_0_15px_rgba(220,38,38,0.2)]">
-               <div className="flex items-start gap-2 mb-3">
-                  <AlertTriangle className="w-5 h-5 text-red-400 shrink-0 mt-0.5" />
-                  <div>
-                     <p className="font-bold text-red-200 text-sm mb-1">
-                       {authErrorType === 'popup_closed' 
-                          ? 'Autenticação Interrompida' 
-                          : 'Erro na Conexão com Google'}
-                     </p>
-                     <p className="text-xs text-slate-300 leading-relaxed">
-                        {authErrorType === 'popup_closed' 
-                          ? 'A janela foi fechada ou bloqueada pelo Google (Erro 400: origin_mismatch).' 
-                          : 'Verifique sua conexão e tente novamente.'}
-                     </p>
-                  </div>
+          {apiNotEnabled && (
+            <div className="w-full bg-slate-800/80 border border-slate-700 p-4 rounded-lg mb-6 text-left">
+               <div className="flex items-center gap-2 text-blue-400 mb-2">
+                 <Info className="w-5 h-5" />
+                 <span className="font-bold text-sm">Configuração Necessária</span>
+               </div>
+               <p className="text-xs text-slate-400 mb-3">
+                 A API do Gmail ainda não está ativada no seu projeto do Google Cloud.
+               </p>
+               <a 
+                 href="https://console.cloud.google.com/apis/library/gmail.googleapis.com" 
+                 target="_blank"
+                 className="block w-full text-center py-2 bg-blue-600/20 text-blue-400 border border-blue-500/30 rounded-md text-xs font-bold hover:bg-blue-600/30 transition-colors"
+               >
+                 ATIVAR GMAIL API AGORA <ExternalLink className="inline w-3 h-3 ml-1" />
+               </a>
+               <p className="text-[10px] text-slate-500 mt-3 border-t border-slate-700 pt-2">
+                  Se for o primeiro acesso, adicione esta URL às "Origens JavaScript autorizadas" no <a href="https://console.cloud.google.com/apis/credentials" target="_blank" className="underline hover:text-blue-300">Google Cloud Console</a>:
+               </p>
+               <div className="flex items-center gap-2 mt-1 bg-black/30 p-2 rounded border border-slate-700/50">
+                  <code className="text-[9px] text-slate-300 break-all font-mono">{window.location.origin}</code>
+                  <button onClick={copyOriginToClipboard} className="p-1 hover:bg-white/10 rounded">
+                    {copyFeedback ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3 text-slate-400" />}
+                  </button>
                </div>
             </div>
-          ) : null}
+          )}
 
-          {/* Dica de Configuração Retrátil */}
-          <div className="w-full mb-6">
-             <button 
-               onClick={() => setShowHelp(!showHelp)}
-               className="flex items-center gap-2 text-xs text-slate-500 hover:text-slate-300 mx-auto mb-2 transition-colors"
-             >
-               <HelpCircle className="w-3 h-3" /> Problemas para conectar?
-             </button>
-
-             {showHelp && (
-                <div className="bg-slate-800/50 rounded-lg p-4 border border-slate-700 w-full text-left animate-fade-in">
-                  <div className="flex items-center gap-2 mb-2">
-                      <Info className="w-4 h-4 text-blue-400 shrink-0" />
-                      <span className="text-xs font-bold text-slate-200">Configuração Necessária</span>
-                  </div>
-                  <p className="text-[10px] text-slate-400 mb-3">
-                    Se for o primeiro acesso, adicione esta URL às "Origens JavaScript autorizadas" no Console:
-                  </p>
-                  <a href="https://console.cloud.google.com/apis/credentials" target="_blank" className="text-xs text-blue-400 font-semibold block mb-3 hover:underline">
-                    Abrir Google Cloud Console ↗
-                  </a>
-                  <div className="flex items-center gap-2 bg-slate-900 rounded p-2 border border-slate-700 relative">
-                      <code className="text-[10px] text-slate-300 break-all flex-1 font-mono pr-10">
-                        {typeof window !== 'undefined' ? window.location.origin : '...'}
-                      </code>
-                      <button 
-                        onClick={copyOriginToClipboard}
-                        className="absolute right-1.5 top-1.5 text-xs p-1.5 rounded transition-all shrink-0 text-slate-400 hover:text-white hover:bg-slate-700"
-                      >
-                        {copyFeedback ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
-                      </button>
-                  </div>
-                </div>
-             )}
-          </div>
+          {authError && !apiNotEnabled && (
+             <div className="w-full bg-rose-500/10 border border-rose-500/20 p-3 rounded-lg mb-6 flex items-start gap-3">
+               <AlertTriangle className="w-5 h-5 text-rose-500 shrink-0 mt-0.5" />
+               <div className="text-left">
+                 <h3 className="text-sm font-bold text-rose-400">Erro de Autenticação</h3>
+                 <p className="text-xs text-slate-400 mt-1">
+                   {authErrorType === 'popup_closed' ? 'A janela de login foi fechada antes de concluir.' : 'Não foi possível conectar. Tente novamente.'}
+                 </p>
+               </div>
+             </div>
+          )}
 
           <button 
             onClick={handleConnectGmail}
             disabled={!isGoogleReady}
-            className={`flex items-center gap-3 font-bold px-6 py-3 rounded-xl transition-all w-full justify-center
-              ${isGoogleReady 
-                ? 'bg-white text-slate-900 hover:bg-slate-200 active:scale-95' 
-                : 'bg-slate-700 text-slate-500 cursor-not-allowed'}
-            `}
+            className="w-full bg-white text-slate-900 font-bold py-3.5 rounded-xl flex items-center justify-center gap-3 hover:bg-slate-100 transition-colors disabled:opacity-50 shadow-lg shadow-slate-100/5"
           >
             {isGoogleReady ? (
-              <>
-                <LogIn className="w-5 h-5" />
-                {authError ? 'Tentar Novamente' : 'Entrar com Google'}
-              </>
+               <>
+                 <LogIn className="w-5 h-5" /> Entrar com Google
+               </>
             ) : (
-              <>
-                <RefreshCw className="w-5 h-5 animate-spin" />
-                Carregando Google...
-              </>
+               <span className="text-sm">Carregando serviço...</span>
             )}
           </button>
         </div>
@@ -1147,96 +1010,89 @@ const App: React.FC = () => {
       <div className="pb-20 animate-fade-in">
         <div className="flex justify-between items-center mb-6 px-1">
           <div className="flex items-center gap-2">
-            <h2 className="text-xl font-bold text-slate-100">E-Mail</h2>
-            <span className="text-xs bg-red-500/20 text-red-300 px-2 py-1 rounded-full">{emails.filter(e => e.isUnread).length} novos</span>
+            <h2 className="text-xl font-bold text-slate-100">Caixa de Entrada</h2>
+            <span className="text-xs bg-slate-800 text-slate-400 px-2 py-1 rounded-full">{emails.length}</span>
           </div>
           <div className="flex gap-2">
-            <button 
+             <button onClick={() => setShowHelp(!showHelp)} className="p-2 text-slate-500 hover:text-slate-300"><HelpCircle className="w-5 h-5" /></button>
+             <button 
               onClick={handleDisconnectGmail}
-              className="p-2 text-slate-500 hover:text-red-400 transition-colors"
+              className="p-2 text-slate-500 hover:text-rose-400 transition-colors"
               title="Desconectar"
             >
-              <LogIn className="w-4 h-4 rotate-180" />
+              <LogOut className="w-5 h-5" />
             </button>
             <button 
-              onClick={() => fetchGmail()}
-              className={`p-2 bg-slate-800 text-slate-300 rounded-full hover:bg-slate-700 transition-all ${isLoadingGmail ? 'animate-spin' : ''}`}
+              onClick={() => fetchGmail(gmailToken)}
+              className={`p-2 bg-red-500/20 text-red-400 rounded-full hover:bg-red-500/30 transition-all ${isLoadingGmail ? 'animate-spin' : ''}`}
             >
               <RefreshCw className="w-4 h-4" />
             </button>
           </div>
         </div>
 
-        <div className="space-y-3">
-           {emails.length === 0 && !isLoadingGmail && (
-             <div className="text-center py-10 text-slate-500">
-               <p className="font-medium text-slate-400">Nenhum e-mail encontrado na caixa de entrada.</p>
-               <p className="text-xs mt-2 opacity-50">Isso significa que sua caixa de entrada está vazia ou limpa.</p>
-             </div>
-           )}
-           
-           {emails.map(email => (
-             <div key={email.id} className={`p-4 rounded-xl border cursor-pointer transition-all ${email.isUnread ? 'bg-slate-800 border-slate-700 shadow-md opacity-100' : 'bg-slate-900/30 border-slate-800 opacity-50 grayscale hover:grayscale-0 hover:opacity-80'}`}>
-               <div className="flex justify-between items-start mb-1">
-                 <div className="flex items-center gap-2 overflow-hidden">
-                   <h3 className={`text-sm truncate ${email.isUnread ? 'font-bold text-slate-100' : 'font-medium text-slate-400'}`}>{email.sender}</h3>
-                   {email.label === 'Updates' && <span className="text-[9px] bg-yellow-500/20 text-yellow-400 px-1.5 py-0.5 rounded">Updates</span>}
-                   {email.label === 'Promotions' && <span className="text-[9px] bg-green-500/20 text-green-400 px-1.5 py-0.5 rounded">Promo</span>}
-                 </div>
-                 <span className="text-[10px] text-slate-500 whitespace-nowrap ml-2">
-                   {email.date.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
-                 </span>
-               </div>
-               <h4 className={`text-xs mb-1 ${email.isUnread ? 'text-slate-200 font-medium' : 'text-slate-500'}`}>{email.subject}</h4>
-               <p className="text-xs text-slate-500 line-clamp-1">{email.snippet}</p>
-             </div>
-           ))}
-        </div>
+        {showHelp && (
+           <div className="bg-slate-800 p-3 rounded-lg mb-4 text-xs text-slate-400 border border-slate-700">
+              <p className="mb-1"><strong>Dica:</strong> Apenas e-mails <u>não lidos</u> aparecem aqui.</p>
+              <p>Para ver todos, acesse o app oficial do Gmail.</p>
+           </div>
+        )}
+
+        {emails.length === 0 && !isLoadingGmail && (
+           <div className="text-center py-10 text-slate-500">
+              <div className="w-16 h-16 bg-slate-800 rounded-full flex items-center justify-center mx-auto mb-4">
+                 <Check className="w-8 h-8 text-emerald-500/50" />
+              </div>
+              <p className="text-sm">Tudo limpo! Nenhum e-mail novo.</p>
+           </div>
+        )}
+
+        {emails.map(email => (
+          <EmailItem 
+             key={email.id}
+             email={email}
+             onSelect={() => handleOpenEmail(email)}
+             onDismiss={() => handleDismissEmail(email.id)}
+          />
+        ))}
       </div>
     );
   };
 
   return (
-    <div className="min-h-screen bg-brand-900 text-slate-100 selection:bg-brand-secondary selection:text-brand-900 font-sans overflow-hidden">
-      <div className="sticky top-0 z-40 bg-brand-900/80 backdrop-blur-md border-b border-slate-800 px-4 py-3 mb-6">
-        <div className="flex items-center justify-center">
-          <button 
-             onClick={() => setCurrentView(ViewState.DASHBOARD)}
-             className="focus:outline-none active:scale-95 transition-transform"
-          >
-            <img 
-              src="https://tidas.com.br/wp-content/uploads/2025/08/logo_tidas_rodan2.svg" 
-              alt="Tidas" 
-              className="h-[45px] w-auto object-contain py-[0.45rem]"
-            />
-          </button>
-        </div>
-      </div>
+    <div className="min-h-screen bg-brand-900 text-slate-200 font-sans selection:bg-brand-secondary/30">
+      <div className="h-safe-top w-full bg-brand-900/90 backdrop-blur-md fixed top-0 z-40"></div>
 
-      <main className="px-4 pb-24 max-w-md mx-auto h-full overflow-y-auto">
+      <main className="p-4 pt-8 max-w-md mx-auto min-h-screen relative">
         {currentView === ViewState.DASHBOARD && renderDashboard()}
         {currentView === ViewState.SITES && renderSites()}
         {currentView === ViewState.FORMS && renderForms()}
-        {currentView === ViewState.GMAIL && renderGmail()}
         {currentView === ViewState.TRELLO && renderTrello()}
+        {currentView === ViewState.GMAIL && renderGmail()}
       </main>
-
+      
       <TabNav 
         currentView={currentView} 
-        onChangeView={setCurrentView} 
-        badges={{ 
-          sites: offlineSitesCount > 0, 
+        onChangeView={setCurrentView}
+        badges={{
+          sites: offlineSitesCount > 0,
           forms: unreadFormsCount,
           gmail: unreadEmailsCount
         }}
       />
 
-      {/* Modal de Detalhes da Mensagem */}
       {selectedForm && (
         <FormDetailsModal 
-          form={selectedForm} 
-          siteName={sites.find(s => s.id === selectedForm.siteId)?.name || 'Desconhecido'}
+          form={selectedForm}
+          siteName={sites.find(s => s.id === selectedForm.siteId)?.name || 'Site'}
           onClose={handleCloseForm}
+        />
+      )}
+
+      {selectedEmail && (
+        <EmailDetailsModal 
+          email={selectedEmail}
+          onClose={() => setSelectedEmailId(null)}
         />
       )}
     </div>

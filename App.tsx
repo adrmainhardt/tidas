@@ -11,7 +11,7 @@ import TrelloCardItem from './components/TrelloCardItem';
 import { fetchFormsFromWP, fetchSiteStats } from './services/wpService';
 import { fetchGmailMessages } from './services/gmailService';
 import { fetchBoards, fetchLists, fetchCardsFromList } from './services/trelloService';
-import { Activity, RefreshCw, AlertTriangle, WifiOff, Trash2, BarChart3, Mail, LogIn, LogOut, Star, Copy, Info, Check, ShieldCheck, Trello, Settings, CheckSquare, ExternalLink, Filter, HelpCircle } from 'lucide-react';
+import { Activity, RefreshCw, AlertTriangle, WifiOff, Trash2, BarChart3, Mail, LogIn, LogOut, Star, Copy, Info, Check, ShieldCheck, Trello, Settings, CheckSquare, ExternalLink, Filter, HelpCircle, Bell } from 'lucide-react';
 
 // Declaração global para o Google Identity Services
 declare global {
@@ -56,6 +56,9 @@ const App: React.FC = () => {
   const [isLoadingForms, setIsLoadingForms] = useState(false);
   const [selectedFormId, setSelectedFormId] = useState<string | null>(null);
   
+  // Notification Permission State
+  const [notifPermission, setNotifPermission] = useState<NotificationPermission>('default');
+
   // Gmail States
   const [gmailToken, setGmailToken] = usePersistedState<string | null>('monitor_gmail_token', null);
   const [emails, setEmails] = useState<EmailMessage[]>([]);
@@ -74,6 +77,7 @@ const App: React.FC = () => {
   const [trelloToken, setTrelloToken] = usePersistedState<string>('monitor_trello_token', '');
   const [trelloBoardId, setTrelloBoardId] = usePersistedState<string>('monitor_trello_board', '');
   const [trelloListIds, setTrelloListIds] = usePersistedState<string[]>('monitor_trello_lists', []);
+  const [trelloBadgeCount, setTrelloBadgeCount] = useState(0);
   
   // Trello Data (Não persistido para evitar cache velho)
   const [trelloCards, setTrelloCards] = useState<TrelloCard[]>([]);
@@ -108,6 +112,13 @@ const App: React.FC = () => {
       setIsSelectingLists(true);
     }
   }, [trelloListIds.length]);
+
+  // Reset Trello badge quando abre a view
+  useEffect(() => {
+    if (currentView === ViewState.TRELLO) {
+      setTrelloBadgeCount(0);
+    }
+  }, [currentView]);
 
   // Inicializa Google Identity Services (OAuth)
   useEffect(() => {
@@ -155,25 +166,44 @@ const App: React.FC = () => {
     return () => clearInterval(timer);
   }, []);
 
-  // Solicitar permissão de notificação de forma segura
+  // Verificar status de permissão de notificação
   useEffect(() => {
-    try {
-      if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'default') {
-        Notification.requestPermission().catch(err => console.log('Erro permissão notificação:', err));
-      }
-    } catch (e) {
-      console.log('Notificações não suportadas neste ambiente');
+    if (typeof window !== 'undefined' && 'Notification' in window) {
+      setNotifPermission(Notification.permission);
     }
   }, []);
+
+  const requestNotificationPermission = async () => {
+    if ('Notification' in window) {
+      try {
+        const permission = await Notification.requestPermission();
+        setNotifPermission(permission);
+        if (permission === 'granted') {
+          new Notification('Notificações Ativadas', {
+            body: 'Você receberá alertas de sites, emails e trello.',
+            icon: 'https://tidas.com.br/wp-content/uploads/2025/11/icoapp.png'
+          });
+        }
+      } catch (error) {
+        console.error('Erro ao solicitar permissão:', error);
+      }
+    } else {
+      alert('Seu navegador não suporta notificações.');
+    }
+  };
 
   const sendNotification = (title: string, body: string) => {
     try {
       if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
-         new Notification(title, { 
+         // Em mobile, a notificação pode não aparecer se o app não estiver em "background" ou se o SO bloquear.
+         // Service Workers seriam ideais, mas em client-side puro, tentamos o padrão.
+         const n = new Notification(title, { 
            body, 
-           icon: 'https://tidas.com.br/wp-content/uploads/2025/08/logo_tidas_rodan2.svg',
-           tag: title + Date.now() 
-         }); 
+           icon: 'https://tidas.com.br/wp-content/uploads/2025/11/icoapp.png',
+           tag: 'tidas-notification'
+         });
+         // Algumas versões do Android requerem vibração explícita
+         if (navigator.vibrate) navigator.vibrate(200);
       }
     } catch (e) {
       console.warn('Falha ao enviar notificação:', e);
@@ -387,9 +417,17 @@ const App: React.FC = () => {
       results.forEach(listCards => allCards.push(...listCards));
       
       const newCards = allCards.filter(c => !prevTrelloCardIdsRef.current.includes(c.id));
-      if (prevTrelloCardIdsRef.current.length > 0 && newCards.length > 0) {
-         sendNotification('Trello: Nova Atividade', `${newCards.length} novo(s) cartão(ões) adicionado(s).`);
+      
+      if (newCards.length > 0) {
+         if (prevTrelloCardIdsRef.current.length > 0) {
+            sendNotification('Trello: Nova Atividade', `${newCards.length} novo(s) cartão(ões) adicionado(s).`);
+         }
+         // Incrementa badge se não estiver na view do Trello
+         if (currentView !== ViewState.TRELLO) {
+            setTrelloBadgeCount(prev => prev + newCards.length);
+         }
       }
+
       prevTrelloCardIdsRef.current = allCards.map(c => c.id);
       setTrelloCards(allCards.sort((a, b) => b.dateLastActivity.getTime() - a.dateLastActivity.getTime()));
     } catch (e) {
@@ -457,6 +495,19 @@ const App: React.FC = () => {
          await checkAllSites();
          await syncForms();
          if (gmailToken) fetchGmail(gmailToken);
+         if (trelloKey && trelloToken && trelloListIds.length > 0) {
+            // Fetch inicial do Trello para popular cache, sem notificar
+            try {
+               // Lógica simplificada de fetch sem notificações no first load
+               const promises = trelloListIds.map(async listId => {
+                  return await fetchCardsFromList(trelloKey, trelloToken, listId);
+               });
+               const results = await Promise.all(promises);
+               const allCards = results.flat();
+               prevTrelloCardIdsRef.current = allCards.map(c => c.id);
+               setTrelloCards(allCards);
+            } catch(e) {}
+         }
        }
     };
 
@@ -569,6 +620,20 @@ const App: React.FC = () => {
            />
         </div>
 
+        {/* Solicitação de Permissão de Notificação */}
+        {notifPermission === 'default' && (
+           <div className="bg-blue-500/10 border border-blue-500/30 rounded-xl p-4 flex flex-col items-center text-center">
+              <Bell className="w-6 h-6 text-blue-400 mb-2" />
+              <p className="text-sm text-blue-200 font-medium mb-2">Ative notificações para ser avisado de sites offline.</p>
+              <button 
+                onClick={requestNotificationPermission}
+                className="bg-blue-600 text-white text-xs font-bold px-4 py-2 rounded-lg hover:bg-blue-500 transition-colors"
+              >
+                ATIVAR NOTIFICAÇÕES
+              </button>
+           </div>
+        )}
+
         <div className="grid grid-cols-2 gap-4">
           <div 
             onClick={() => setCurrentView(ViewState.SITES)}
@@ -633,6 +698,9 @@ const App: React.FC = () => {
                </p>
              </div>
            </div>
+           {trelloBadgeCount > 0 && (
+              <span className="bg-rose-500 text-white text-xs font-bold px-2 py-1 rounded-full">{trelloBadgeCount}</span>
+           )}
         </div>
 
         <div>
@@ -1070,8 +1138,6 @@ const App: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-brand-900 text-slate-200 font-sans selection:bg-brand-secondary/30">
-      <div className="h-safe-top w-full bg-brand-900/90 backdrop-blur-md fixed top-0 z-40"></div>
-
       <main className="p-4 pt-8 max-w-md mx-auto min-h-screen relative">
         {currentView === ViewState.DASHBOARD && renderDashboard()}
         {currentView === ViewState.SITES && renderSites()}
@@ -1086,7 +1152,8 @@ const App: React.FC = () => {
         badges={{
           sites: offlineSitesCount > 0,
           forms: unreadFormsCount,
-          gmail: unreadEmailsCount
+          gmail: unreadEmailsCount,
+          trello: trelloBadgeCount
         }}
       />
 

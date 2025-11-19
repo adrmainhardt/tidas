@@ -1,4 +1,3 @@
-
 import React from 'react';
 import { ViewState } from '../types';
 import { LayoutDashboard, Globe, MessageSquareText, Mail, Trello } from 'lucide-react';
@@ -10,6 +9,7 @@ interface TabNavProps {
     sites: boolean; // True se tiver site offline
     forms: number;  // Número de forms não lidos
     gmail?: number; // Número de emails não lidos
+    trello?: number; // Número de novos cartões
   };
 }
 
@@ -19,7 +19,7 @@ const TabNav: React.FC<TabNavProps> = ({ currentView, onChangeView, badges }) =>
     { id: ViewState.SITES, label: 'Sites', icon: Globe, badge: badges.sites },
     { id: ViewState.FORMS, label: 'Forms', icon: MessageSquareText, badgeCount: badges.forms },
     { id: ViewState.GMAIL, label: 'E-Mail', icon: Mail, badgeCount: badges.gmail },
-    { id: ViewState.TRELLO, label: 'Trello', icon: Trello },
+    { id: ViewState.TRELLO, label: 'Trello', icon: Trello, badgeCount: badges.trello },
   ];
 
   return (
@@ -44,8 +44,8 @@ const TabNav: React.FC<TabNavProps> = ({ currentView, onChangeView, badges }) =>
                    <span className="absolute -top-1 -right-1 w-3 h-3 bg-rose-500 rounded-full border-2 border-slate-900"></span>
                 )}
 
-                {/* Badge Numérico (Forms e Gmail) */}
-                {(item.id === ViewState.FORMS || item.id === ViewState.GMAIL) && (item.badgeCount || 0) > 0 && (
+                {/* Badge Numérico (Forms, Gmail e Trello) */}
+                {(item.id === ViewState.FORMS || item.id === ViewState.GMAIL || item.id === ViewState.TRELLO) && (item.badgeCount || 0) > 0 && (
                   <span className="absolute -top-2 -right-3 bg-rose-500 text-white text-[9px] font-bold px-1.5 py-0.5 rounded-full border-2 border-slate-900 min-w-[18px] flex justify-center">
                     {item.badgeCount && item.badgeCount > 9 ? '9+' : item.badgeCount}
                   </span>

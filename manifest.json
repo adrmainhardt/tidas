@@ -8,9 +8,9 @@
   "orientation": "portrait",
   "icons": [
     {
-      "src": "https://tidas.com.br/wp-content/uploads/2025/08/logo_tidas_rodan2.svg",
+      "src": "https://tidas.com.br/wp-content/uploads/2025/11/icoapp.png",
       "sizes": "any",
-      "type": "image/svg+xml"
+      "type": "image/png"
     }
   ]
 }

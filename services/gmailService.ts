@@ -35,19 +35,15 @@ interface GmailListResponse {
 export const fetchGmailMessages = async (accessToken: string, maxResults: number = 60): Promise<EmailMessage[]> => {
   try {
     // MUDANÇA CRÍTICA: Usar 'is:unread' em vez de 'label:INBOX'.
-    // 'label:INBOX' pode ocultar e-mails se eles forem arquivados ou categorizados (Promoções/Social) dependendo da config.
-    // 'is:unread' garante que pegamos TUDO que não foi lido.
+    // Garantimos timestamp único no URL para evitar cache do navegador sem precisar de headers complexos
     const listUrl = `${GMAIL_API_BASE}/messages?maxResults=${maxResults}&q=is:unread&includeSpamTrash=false&_=${Date.now()}`;
     
+    // IMPORTANTE: Para evitar erros de CORS (Preflight), enviamos APENAS o Authorization em requisições GET.
+    // Headers como Content-Type (em GET), Cache-Control customizados, etc, disparam um preflight que a API do Google rejeita.
     const listResponse = await fetch(listUrl, {
         method: 'GET',
-        cache: 'no-store',
         headers: {
-          Authorization: `Bearer ${accessToken}`,
-          'Content-Type': 'application/json',
-          'Cache-Control': 'no-cache, no-store, must-revalidate',
-          'Pragma': 'no-cache',
-          'Expires': '0'
+          Authorization: `Bearer ${accessToken}`
         }
     });
 
@@ -55,7 +51,9 @@ export const fetchGmailMessages = async (accessToken: string, maxResults: number
       if (listResponse.status === 401) {
         throw new Error("AUTH_EXPIRED");
       }
-      throw new Error(`Erro na API Gmail: ${listResponse.statusText}`);
+      const errText = await listResponse.text();
+      console.error("Gmail API Error Body:", errText);
+      throw new Error(`Erro na API Gmail: ${listResponse.status} ${listResponse.statusText}`);
     }
 
     const listData: GmailListResponse = await listResponse.json();
@@ -64,13 +62,12 @@ export const fetchGmailMessages = async (accessToken: string, maxResults: number
       return [];
     }
 
-    // Busca detalhes em paralelo com timestamp único para cada request
+    // Busca detalhes em paralelo
     const detailsPromises = listData.messages.map(msg => 
       fetch(`${GMAIL_API_BASE}/messages/${msg.id}?format=full&_=${Date.now()}`, {
-        cache: 'no-store',
+        method: 'GET',
         headers: { 
-          Authorization: `Bearer ${accessToken}`,
-          'Cache-Control': 'no-cache'
+          Authorization: `Bearer ${accessToken}`
         }
       }).then(res => res.json() as Promise<GmailMessageDetail>)
     );

@@ -34,9 +34,10 @@ interface GmailListResponse {
  */
 export const fetchGmailMessages = async (accessToken: string, maxResults: number = 60): Promise<EmailMessage[]> => {
   try {
-    // MUDANÇA: Usar 'label:INBOX' é mais direto para a API do que 'in:inbox'.
-    // Adicionado timestamp e headers de controle de cache para forçar atualização.
-    const listUrl = `${GMAIL_API_BASE}/messages?maxResults=${maxResults}&q=label:INBOX&includeSpamTrash=false&_=${Date.now()}`;
+    // MUDANÇA CRÍTICA: Usar 'is:unread' em vez de 'label:INBOX'.
+    // 'label:INBOX' pode ocultar e-mails se eles forem arquivados ou categorizados (Promoções/Social) dependendo da config.
+    // 'is:unread' garante que pegamos TUDO que não foi lido.
+    const listUrl = `${GMAIL_API_BASE}/messages?maxResults=${maxResults}&q=is:unread&includeSpamTrash=false&_=${Date.now()}`;
     
     const listResponse = await fetch(listUrl, {
         method: 'GET',
@@ -77,7 +78,6 @@ export const fetchGmailMessages = async (accessToken: string, maxResults: number
     const detailsData = await Promise.all(detailsPromises);
 
     // Filtra mensagens válidas e ordena explicitamente por data (mais recente primeiro)
-    // A API lista por ID, que geralmente é cronológico, mas garantir via Date é mais seguro.
     return detailsData
       .filter(msg => msg && msg.id) 
       .map(msg => parseGmailMessage(msg))

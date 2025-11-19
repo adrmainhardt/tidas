@@ -605,7 +605,7 @@ const App: React.FC = () => {
                <Mail className="w-5 h-5 text-red-400" />
              </div>
              <div>
-               <h3 className="text-sm font-semibold text-slate-100">E-Mail Tidas</h3>
+               <h3 className="text-sm font-semibold text-slate-100">E-Mail</h3>
                <p className="text-xs text-slate-400">{gmailToken ? (unreadEmailsCount > 0 ? `${unreadEmailsCount} não lidos` : 'Sem e-mails não lidos') : 'Não conectado'}</p>
              </div>
            </div>
@@ -1000,7 +1000,7 @@ const App: React.FC = () => {
           <div className="w-20 h-20 bg-slate-800 rounded-full flex items-center justify-center mb-6 border border-slate-700">
             <Mail className="w-10 h-10 text-red-500" />
           </div>
-          <h2 className="text-2xl font-bold text-slate-100 mb-3">Conectar E-Mail Tidas</h2>
+          <h2 className="text-2xl font-bold text-slate-100 mb-3">Conectar E-Mail</h2>
           <p className="text-sm text-slate-400 mb-6 leading-relaxed">
             Monitore e-mails importantes diretamente por aqui.
           </p>
@@ -1110,7 +1110,7 @@ const App: React.FC = () => {
       <div className="pb-20 animate-fade-in">
         <div className="flex justify-between items-center mb-6 px-1">
           <div className="flex items-center gap-2">
-            <h2 className="text-xl font-bold text-slate-100">E-Mail Tidas</h2>
+            <h2 className="text-xl font-bold text-slate-100">E-Mail</h2>
             <span className="text-xs bg-red-500/20 text-red-300 px-2 py-1 rounded-full">{emails.filter(e => e.isUnread).length} novos</span>
           </div>
           <div className="flex gap-2">

@@ -17,7 +17,7 @@ interface GmailMessagePart {
 interface GmailMessageDetail {
   id: string;
   threadId: string;
-  labelIds?: string[]; // Opcional na API
+  labelIds?: string[];
   snippet: string;
   internalDate: string;
   payload: GmailMessagePart;
@@ -32,10 +32,10 @@ interface GmailListResponse {
 /**
  * Busca os e-mails mais recentes da caixa de entrada.
  */
-export const fetchGmailMessages = async (accessToken: string, maxResults: number = 80): Promise<EmailMessage[]> => {
+export const fetchGmailMessages = async (accessToken: string, maxResults: number = 60): Promise<EmailMessage[]> => {
   try {
-    // Busca lista de IDs. label:INBOX é mais preciso para API que in:inbox
-    // Adiciona timestamp para bypass total de cache
+    // MUDANÇA: Usar 'label:INBOX' é mais direto para a API do que 'in:inbox'.
+    // Adicionado timestamp e headers de controle de cache para forçar atualização.
     const listUrl = `${GMAIL_API_BASE}/messages?maxResults=${maxResults}&q=label:INBOX&includeSpamTrash=false&_=${Date.now()}`;
     
     const listResponse = await fetch(listUrl, {
@@ -43,7 +43,10 @@ export const fetchGmailMessages = async (accessToken: string, maxResults: number
         cache: 'no-store',
         headers: {
           Authorization: `Bearer ${accessToken}`,
-          'Content-Type': 'application/json'
+          'Content-Type': 'application/json',
+          'Cache-Control': 'no-cache, no-store, must-revalidate',
+          'Pragma': 'no-cache',
+          'Expires': '0'
         }
     });
 
@@ -60,20 +63,25 @@ export const fetchGmailMessages = async (accessToken: string, maxResults: number
       return [];
     }
 
-    // Busca detalhes em paralelo
+    // Busca detalhes em paralelo com timestamp único para cada request
     const detailsPromises = listData.messages.map(msg => 
       fetch(`${GMAIL_API_BASE}/messages/${msg.id}?format=full&_=${Date.now()}`, {
         cache: 'no-store',
-        headers: { Authorization: `Bearer ${accessToken}` }
+        headers: { 
+          Authorization: `Bearer ${accessToken}`,
+          'Cache-Control': 'no-cache'
+        }
       }).then(res => res.json() as Promise<GmailMessageDetail>)
     );
 
     const detailsData = await Promise.all(detailsPromises);
 
-    // Filtra mensagens inválidas e parseia
+    // Filtra mensagens válidas e ordena explicitamente por data (mais recente primeiro)
+    // A API lista por ID, que geralmente é cronológico, mas garantir via Date é mais seguro.
     return detailsData
       .filter(msg => msg && msg.id) 
-      .map(msg => parseGmailMessage(msg));
+      .map(msg => parseGmailMessage(msg))
+      .sort((a, b) => b.date.getTime() - a.date.getTime());
 
   } catch (error: any) {
     console.error("Erro no fetch do Gmail:", error);

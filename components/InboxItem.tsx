@@ -1,7 +1,7 @@
 
 import React, { useState, useRef } from 'react';
 import { FormSubmission } from '../types';
-import { Mail, Calendar, ChevronRight, Trash2, Globe, Eye } from 'lucide-react';
+import { Mail, Calendar, ChevronRight, Trash2, Globe } from 'lucide-react';
 
 interface InboxItemProps {
   form: FormSubmission;
@@ -87,10 +87,10 @@ const InboxItem: React.FC<InboxItemProps> = ({ form, siteName, onSelect, onDismi
 
       <div 
         ref={itemRef}
-        className={`relative p-4 transition-all duration-200 ease-out cursor-pointer rounded-xl border
+        className={`relative p-4 transition-all duration-300 ease-out cursor-pointer rounded-xl border
           ${isUnread 
-            ? 'bg-slate-800 border-blue-500 shadow-[0_0_15px_rgba(59,130,246,0.15)] opacity-100 z-10' 
-            : 'bg-slate-900/30 border-transparent opacity-50 hover:opacity-70 grayscale'}
+            ? 'bg-slate-800 border-blue-500/60 shadow-[0_0_20px_rgba(59,130,246,0.15)] opacity-100 translate-y-0' 
+            : 'bg-slate-900/20 border-transparent opacity-40 grayscale hover:opacity-70 hover:grayscale-0'}
         `}
         style={{ transform: `translateX(${translateX}px)` }}
         onTouchStart={handleTouchStart}
@@ -111,15 +111,15 @@ const InboxItem: React.FC<InboxItemProps> = ({ form, siteName, onSelect, onDismi
         <div className="flex justify-between items-start mb-2">
           <div className="flex items-center gap-3 overflow-hidden">
             <div className={`p-2 rounded-full transition-colors ${isUnread ? 'bg-blue-500/20' : 'bg-slate-800/50'}`}>
-              <Mail className={`w-4 h-4 ${isUnread ? 'text-blue-400' : 'text-slate-600'}`} />
+              <Mail className={`w-4 h-4 ${isUnread ? 'text-blue-400' : 'text-slate-500'}`} />
             </div>
             <div className="flex flex-col overflow-hidden">
-              <span className={`text-sm truncate pr-2 ${isUnread ? 'font-bold text-white' : 'font-normal text-slate-500'}`}>
+              <span className={`text-sm truncate pr-2 ${isUnread ? 'font-bold text-white' : 'font-normal text-slate-400'}`}>
                 {form.senderName}
               </span>
               <div className="flex items-center gap-1 mt-0.5">
-                 <Globe className={`w-3 h-3 ${isUnread ? 'text-blue-300/70' : 'text-slate-700'}`} />
-                 <span className={`text-xs font-medium uppercase tracking-wide ${isUnread ? 'text-blue-300' : 'text-slate-600'}`}>
+                 <Globe className={`w-3 h-3 ${isUnread ? 'text-blue-300/70' : 'text-slate-600'}`} />
+                 <span className={`text-xs font-medium uppercase tracking-wide ${isUnread ? 'text-blue-300' : 'text-slate-500'}`}>
                    {siteName}
                  </span>
               </div>
@@ -139,13 +139,13 @@ const InboxItem: React.FC<InboxItemProps> = ({ form, siteName, onSelect, onDismi
           
           <button 
               onClick={handleReadButtonClick}
-              className={`flex items-center text-xs font-bold px-2 py-1 rounded transition-transform active:scale-95
+              className={`flex items-center text-xs font-bold px-3 py-1.5 rounded transition-transform active:scale-95
                 ${isUnread 
-                  ? 'text-blue-400 bg-blue-500/10 hover:bg-blue-500/20 hover:text-blue-300' 
-                  : 'text-slate-600 bg-transparent hover:text-slate-400'
+                  ? 'text-blue-200 bg-blue-600 hover:bg-blue-500 shadow-lg shadow-blue-900/20' 
+                  : 'text-slate-500 bg-transparent hover:text-slate-300'
                 }`}
           >
-            {isUnread ? 'Ler' : 'Rever'} <ChevronRight className="w-3 h-3 ml-0.5" />
+            {isUnread ? 'Ler Mensagem' : 'Ver Detalhes'} <ChevronRight className="w-3 h-3 ml-0.5" />
           </button>
         </div>
       </div>

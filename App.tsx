@@ -1,14 +1,15 @@
-
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { DEFAULT_SITES, MOCK_FORMS, GOOGLE_CLIENT_ID } from './constants';
-import { SiteConfig, SiteStatus, ViewState, FormSubmission, EmailMessage } from './types';
+import { SiteConfig, SiteStatus, ViewState, FormSubmission, EmailMessage, TrelloBoard, TrelloList, TrelloCard } from './types';
 import MonitorCard from './components/MonitorCard';
 import InboxItem from './components/InboxItem';
 import TabNav from './components/TabNav';
 import FormDetailsModal from './components/FormDetailsModal';
+import TrelloCardItem from './components/TrelloCardItem';
 import { fetchFormsFromWP, fetchSiteStats } from './services/wpService';
 import { fetchGmailMessages } from './services/gmailService';
-import { Activity, RefreshCw, AlertTriangle, WifiOff, Trash2, BarChart3, Mail, LogIn, Star, Copy, Info, Check, ShieldCheck } from 'lucide-react';
+import { fetchBoards, fetchLists, fetchCardsFromList } from './services/trelloService';
+import { Activity, RefreshCw, AlertTriangle, WifiOff, Trash2, BarChart3, Mail, LogIn, Star, Copy, Info, Check, ShieldCheck, Trello, Settings, CheckSquare, ExternalLink, Filter } from 'lucide-react';
 
 // Declaração global para o Google Identity Services
 declare global {
@@ -43,6 +44,9 @@ function usePersistedState<T>(key: string, initialValue: T): [T, React.Dispatch<
   return [state, setState];
 }
 
+// Cores para as listas do Trello (cíclico)
+const TRELLO_COLORS = ['blue', 'amber', 'emerald', 'purple', 'rose', 'cyan', 'indigo', 'lime'];
+
 const App: React.FC = () => {
   const [currentView, setCurrentView] = useState<ViewState>(ViewState.DASHBOARD);
   const [sites, setSites] = useState<SiteConfig[]>(DEFAULT_SITES);
@@ -60,6 +64,21 @@ const App: React.FC = () => {
   const [authErrorType, setAuthErrorType] = useState<string | null>(null);
   const tokenClient = useRef<any>(null);
 
+  // Trello States
+  const [trelloKey, setTrelloKey] = usePersistedState<string>('monitor_trello_key', '');
+  const [trelloToken, setTrelloToken] = usePersistedState<string>('monitor_trello_token', '');
+  const [trelloBoardId, setTrelloBoardId] = usePersistedState<string>('monitor_trello_board', '');
+  const [trelloListIds, setTrelloListIds] = usePersistedState<string[]>('monitor_trello_lists', []);
+  
+  // Trello Data (Não persistido para evitar cache velho)
+  const [trelloCards, setTrelloCards] = useState<TrelloCard[]>([]);
+  const [availableBoards, setAvailableBoards] = useState<TrelloBoard[]>([]);
+  const [availableLists, setAvailableLists] = useState<TrelloList[]>([]);
+  const [isLoadingTrello, setIsLoadingTrello] = useState(false);
+  const [isConfiguringTrello, setIsConfiguringTrello] = useState(false);
+  const [isSelectingLists, setIsSelectingLists] = useState(false); 
+  const [activeTrelloFilter, setActiveTrelloFilter] = useState<string>('ALL');
+
   // Persistência de estados de leitura e exclusão
   const [readFormIds, setReadFormIds] = usePersistedState<string[]>('monitor_read_forms_v2', []);
   const [deletedFormIds, setDeletedFormIds] = usePersistedState<string[]>('monitor_deleted_forms_v2', []);
@@ -68,11 +87,22 @@ const App: React.FC = () => {
   const deletedIdsRef = useRef<string[]>([]);
   const readIdsRef = useRef<string[]>([]);
   const sitesRef = useRef<SiteConfig[]>(DEFAULT_SITES);
+  
+  // Refs para detecção de novos itens (Notificações)
+  const prevEmailIdsRef = useRef<string[]>([]);
+  const prevTrelloCardIdsRef = useRef<string[]>([]);
 
   // Mantém os refs sempre atualizados
   useEffect(() => { deletedIdsRef.current = deletedFormIds || []; }, [deletedFormIds]);
   useEffect(() => { readIdsRef.current = readFormIds || []; }, [readFormIds]);
   useEffect(() => { sitesRef.current = sites; }, [sites]);
+
+  // Força o modo de seleção se não houver listas selecionadas
+  useEffect(() => {
+    if (trelloListIds.length === 0) {
+      setIsSelectingLists(true);
+    }
+  }, [trelloListIds.length]);
 
   // Inicializa Google Identity Services (OAuth)
   useEffect(() => {
@@ -134,13 +164,11 @@ const App: React.FC = () => {
   const sendNotification = (title: string, body: string) => {
     try {
       if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
-        if (document.visibilityState === 'hidden' || true) {
-           new Notification(title, { 
-             body, 
-             icon: 'https://tidas.com.br/wp-content/uploads/2025/11/icoapp.png',
-             tag: title 
-           }); 
-        }
+         new Notification(title, { 
+           body, 
+           icon: 'https://tidas.com.br/wp-content/uploads/2025/11/icoapp.png',
+           tag: title + Date.now() // Tag única para garantir que todas apareçam
+         }); 
       }
     } catch (e) {
       console.warn('Falha ao enviar notificação:', e);
@@ -284,8 +312,21 @@ const App: React.FC = () => {
     
     setIsLoadingGmail(true);
     try {
-      // Busca 80 mensagens para garantir que novos e-mails não fiquem de fora
+      // Busca 60 mensagens para garantir que novos e-mails não fiquem de fora
       const messages = await fetchGmailMessages(token, 80);
+      
+      // Notificação de novos e-mails
+      const currentUnread = messages.filter(m => m.isUnread);
+      const newUnread = currentUnread.filter(m => !prevEmailIdsRef.current.includes(m.id));
+
+      // Verifica se temos dados anteriores para não notificar no primeiro carregamento
+      if (prevEmailIdsRef.current.length > 0 && newUnread.length > 0) {
+         sendNotification('Novo E-mail', `Você recebeu ${newUnread.length} novo(s) e-mail(s) importante(s).`);
+      }
+      
+      // Atualiza ref para a próxima verificação
+      prevEmailIdsRef.current = messages.map(m => m.id);
+
       setEmails(messages);
     } catch (error: any) {
       console.error("Erro ao carregar Gmail:", error);
@@ -296,6 +337,94 @@ const App: React.FC = () => {
       setIsLoadingGmail(false);
     }
   };
+
+  // Trello Logic
+  const loadTrelloBoards = async () => {
+    if (!trelloKey || !trelloToken) return;
+    setIsLoadingTrello(true);
+    try {
+      const boards = await fetchBoards(trelloKey, trelloToken);
+      setAvailableBoards(boards);
+    } catch (e) {
+      console.error(e);
+      alert('Erro ao carregar quadros. Verifique suas chaves.');
+    } finally {
+      setIsLoadingTrello(false);
+    }
+  };
+
+  const loadTrelloLists = async (boardId: string) => {
+    // Se já estiver carregando, não duplicar, a menos que seja forçado
+    setIsLoadingTrello(true);
+    try {
+      const lists = await fetchLists(trelloKey, trelloToken, boardId);
+      setAvailableLists(lists);
+      return lists;
+    } catch (e) {
+      console.error(e);
+      return [];
+    } finally {
+      setIsLoadingTrello(false);
+    }
+  };
+
+  const fetchTrelloCards = async () => {
+    if (!trelloKey || !trelloToken || !trelloListIds.length) return;
+    setIsLoadingTrello(true);
+    try {
+      // Se availableLists estiver vazio (ex: refresh da página), precisamos buscar as listas para saber os nomes
+      let currentAvailableLists = availableLists;
+      if (availableLists.length === 0 && trelloBoardId) {
+         currentAvailableLists = await loadTrelloLists(trelloBoardId);
+      }
+
+      const allCards: TrelloCard[] = [];
+      // Busca cards de cada lista selecionada em paralelo
+      const promises = trelloListIds.map(async listId => {
+          const cards = await fetchCardsFromList(trelloKey, trelloToken, listId);
+          
+          // Tenta achar o nome da lista para exibir no card
+          const listName = currentAvailableLists.find(l => l.id === listId)?.name || 'Lista';
+          return cards.map(c => ({ ...c, listName }));
+      });
+
+      const results = await Promise.all(promises);
+      results.forEach(listCards => allCards.push(...listCards));
+      
+      // Notificação de novos cartões
+      const newCards = allCards.filter(c => !prevTrelloCardIdsRef.current.includes(c.id));
+      
+      // Verifica se temos dados anteriores para não notificar no primeiro carregamento
+      if (prevTrelloCardIdsRef.current.length > 0 && newCards.length > 0) {
+         sendNotification('Trello: Nova Atividade', `${newCards.length} novo(s) cartão(ões) adicionado(s).`);
+      }
+
+      // Atualiza ref
+      prevTrelloCardIdsRef.current = allCards.map(c => c.id);
+
+      // Ordenar por data de atividade (mais recente no topo)
+      setTrelloCards(allCards.sort((a, b) => b.dateLastActivity.getTime() - a.dateLastActivity.getTime()));
+    } catch (e) {
+      console.error("Erro Trello Cards", e);
+    } finally {
+      setIsLoadingTrello(false);
+    }
+  };
+
+  // Efeito para carregar dados do Trello inicial
+  useEffect(() => {
+    if (trelloKey && trelloToken && trelloBoardId && availableLists.length === 0) {
+      loadTrelloLists(trelloBoardId);
+    }
+  }, [trelloBoardId]);
+
+  // Efeito para carregar cards Trello periodicamente se configurado
+  useEffect(() => {
+    if (currentView === ViewState.TRELLO && trelloKey && trelloToken && trelloListIds.length > 0) {
+      fetchTrelloCards();
+    }
+  }, [currentView]);
+
 
   const handleConnectGmail = () => {
     if (GOOGLE_CLIENT_ID.includes('YOUR_CLIENT_ID')) {
@@ -355,6 +484,10 @@ const App: React.FC = () => {
         setSites(updatedResults);
         
         if (gmailToken) fetchGmail(gmailToken);
+        // Refresh Trello if active
+        if (trelloKey && trelloToken && trelloListIds.length > 0) {
+            fetchTrelloCards(); // Background refresh
+        }
       }
     }, 60000);
 
@@ -481,6 +614,26 @@ const App: React.FC = () => {
            )}
         </div>
 
+         {/* Trello Widget no Dashboard */}
+         <div 
+          onClick={() => setCurrentView(ViewState.TRELLO)}
+          className="bg-slate-800 p-4 rounded-2xl border border-slate-700 shadow-sm cursor-pointer hover:bg-slate-700 active:scale-95 transition-all flex justify-between items-center"
+        >
+           <div className="flex items-center gap-3">
+             <div className="p-2 bg-blue-500/10 rounded-full">
+               <Trello className="w-5 h-5 text-blue-400" />
+             </div>
+             <div>
+               <h3 className="text-sm font-semibold text-slate-100">Trello</h3>
+               <p className="text-xs text-slate-400">
+                  {trelloListIds.length > 0 
+                    ? `Monitorando ${trelloListIds.length} listas` 
+                    : 'Não configurado'}
+               </p>
+             </div>
+           </div>
+        </div>
+
         <div>
           <h2 className="text-lg font-bold text-slate-100 mb-4 px-1">Status Geral</h2>
           {sites.map(site => (
@@ -572,6 +725,272 @@ const App: React.FC = () => {
     </div>
   );
 
+  const renderTrello = () => {
+    // Estado 1: Configuração de API Key
+    if (isConfiguringTrello || !trelloKey || !trelloToken) {
+      return (
+        <div className="pb-20 animate-fade-in px-4">
+           <h2 className="text-xl font-bold text-slate-100 mb-4">Configurar Trello</h2>
+           
+           {/* Help Box */}
+           <div className="bg-blue-500/10 border border-blue-500/20 p-4 rounded-xl mb-6">
+              <h3 className="text-sm font-bold text-blue-400 mb-2 flex items-center gap-2">
+                 <Info className="w-4 h-4" /> Instruções
+              </h3>
+              <ol className="list-decimal list-inside text-xs text-slate-300 space-y-1.5">
+                <li>Clique em <span className="font-bold text-white">Obter API Key</span> abaixo.</li>
+                <li>Faça login no Trello se necessário e aceite os termos.</li>
+                <li>Copie a <span className="font-mono bg-black/30 px-1 rounded">API Key</span> e cole no campo 1.</li>
+                <li>Um botão <span className="font-bold text-emerald-400">Gerar Token</span> aparecerá. Clique nele.</li>
+                <li>Autorize o app e copie o Token gerado para o campo 2.</li>
+              </ol>
+           </div>
+
+           <div className="bg-slate-800 p-4 rounded-xl border border-slate-700 space-y-5">
+              {/* API Key Field */}
+              <div>
+                <label className="block text-xs font-semibold text-slate-300 mb-1.5">1. API Key</label>
+                <div className="flex gap-2 mb-2">
+                   <input 
+                     type="text" 
+                     value={trelloKey} 
+                     onChange={e => setTrelloKey(e.target.value)}
+                     className="flex-1 bg-slate-900 border border-slate-700 rounded-lg p-2.5 text-sm text-white focus:border-blue-500 outline-none transition-colors"
+                     placeholder="Cole sua API Key aqui"
+                   />
+                </div>
+                <a 
+                    href="https://trello.com/app-key" 
+                    target="_blank" 
+                    className="inline-flex items-center gap-2 text-xs bg-slate-700 hover:bg-slate-600 text-white px-3 py-2 rounded-lg transition-colors border border-slate-600"
+                >
+                     <ExternalLink className="w-3 h-3" /> Obter API Key no Trello
+                </a>
+              </div>
+              
+              {/* Token Field */}
+              <div className={`transition-opacity duration-300 ${!trelloKey ? 'opacity-50' : 'opacity-100'}`}>
+                <label className="block text-xs font-semibold text-slate-300 mb-1.5">2. Token</label>
+                <input 
+                  type="text" 
+                  value={trelloToken}
+                  onChange={e => setTrelloToken(e.target.value)}
+                  className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2.5 text-sm text-white focus:border-blue-500 outline-none transition-colors mb-2"
+                  placeholder="Cole seu Token aqui"
+                  disabled={!trelloKey}
+                />
+                
+                {trelloKey ? (
+                   <a 
+                     href={`https://trello.com/1/authorize?expiration=never&scope=read,write,account&response_type=token&name=MonitorWP&key=${trelloKey}`} 
+                     target="_blank" 
+                     className="inline-flex items-center gap-2 text-xs bg-emerald-600/20 text-emerald-400 border border-emerald-600/30 px-3 py-2 rounded-lg hover:bg-emerald-600/30 transition-colors"
+                   >
+                     <ExternalLink className="w-3 h-3" /> Gerar Token de Acesso
+                   </a>
+                ) : (
+                   <span className="text-[10px] text-slate-500 italic">
+                     (Preencha a API Key acima para liberar o link do Token)
+                   </span>
+                )}
+              </div>
+
+              <button 
+                onClick={() => {
+                   setIsConfiguringTrello(false);
+                   loadTrelloBoards();
+                }}
+                disabled={!trelloKey || !trelloToken}
+                className="w-full bg-blue-600 text-white font-bold py-3 rounded-xl disabled:opacity-50 hover:bg-blue-500 transition-all shadow-lg shadow-blue-900/20 mt-2"
+              >
+                Salvar e Conectar
+              </button>
+           </div>
+        </div>
+      );
+    }
+
+    // Estado 2: Seleção de Listas
+    // Apenas mostramos se não tiver board ou se estivermos explicitamente em modo de seleção
+    if (!trelloBoardId || isSelectingLists) {
+      return (
+        <div className="pb-20 animate-fade-in px-4">
+          <div className="flex justify-between items-center mb-4">
+             <h2 className="text-xl font-bold text-slate-100">Selecionar Listas</h2>
+             <button onClick={() => setIsConfiguringTrello(true)} className="p-2 text-slate-400"><Settings className="w-5 h-5" /></button>
+          </div>
+
+          {!trelloBoardId ? (
+             <div className="space-y-3">
+               <p className="text-sm text-slate-400">Escolha o Quadro:</p>
+               {availableBoards.length === 0 && <button onClick={loadTrelloBoards} className="text-blue-400 text-xs underline">Carregar Quadros</button>}
+               {availableBoards.map(board => (
+                 <button
+                   key={board.id}
+                   onClick={() => {
+                     setTrelloBoardId(board.id);
+                     loadTrelloLists(board.id);
+                   }}
+                   className="w-full text-left p-3 bg-slate-800 rounded-lg border border-slate-700 hover:bg-slate-700"
+                 >
+                   {board.name}
+                 </button>
+               ))}
+             </div>
+          ) : (
+            <div className="space-y-3">
+               <div className="flex justify-between">
+                 <p className="text-sm text-slate-400">Marque as listas que deseja monitorar:</p>
+                 <button onClick={() => setTrelloBoardId('')} className="text-xs text-slate-500">Voltar</button>
+               </div>
+               
+               <div className="bg-slate-900/50 p-2 rounded-lg border border-slate-800 mb-2 max-h-[60vh] overflow-y-auto">
+                  {availableLists.map(list => {
+                    const isSelected = trelloListIds.includes(list.id);
+                    return (
+                      <button
+                        key={list.id}
+                        onClick={() => {
+                          if (isSelected) {
+                            setTrelloListIds(prev => prev.filter(id => id !== list.id));
+                          } else {
+                            // Sem limites! Adiciona quantas quiser.
+                            setTrelloListIds(prev => [...prev, list.id]);
+                          }
+                        }}
+                        className={`w-full flex items-center justify-between p-3 mb-2 rounded-lg border transition-colors ${isSelected ? 'bg-blue-500/20 border-blue-500' : 'bg-slate-800 border-slate-700'}`}
+                      >
+                        <span>{list.name}</span>
+                        {isSelected ? <CheckSquare className="w-5 h-5 text-blue-400" /> : <div className="w-5 h-5 border border-slate-600 rounded"></div>}
+                      </button>
+                    );
+                  })}
+               </div>
+
+               <div className="bg-slate-800 p-3 rounded-lg text-xs text-center">
+                  Selecionado: <span className="font-bold text-white">{trelloListIds.length}</span> listas
+               </div>
+
+               <button 
+                 onClick={() => {
+                     setIsSelectingLists(false); // Sai do modo de seleção
+                     fetchTrelloCards();
+                 }}
+                 disabled={trelloListIds.length === 0}
+                 className="w-full mt-4 bg-emerald-600 text-white font-bold py-3 rounded-xl hover:bg-emerald-500 disabled:opacity-50 disabled:cursor-not-allowed"
+               >
+                 Confirmar Monitoramento
+               </button>
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    // Filter Logic for State 3
+    const uniqueLists = trelloListIds.map((id, idx) => {
+         // Tenta pegar o nome dos cards carregados ou da lista disponível
+         const fromCard = trelloCards.find(c => c.listId === id)?.listName;
+         const fromAvailable = availableLists.find(l => l.id === id)?.name;
+         return { 
+           id, 
+           name: fromCard || fromAvailable || 'Lista',
+           colorName: TRELLO_COLORS[idx % TRELLO_COLORS.length] // Atribui uma cor cíclica
+         };
+    });
+
+    const filteredCards = activeTrelloFilter === 'ALL' 
+        ? trelloCards 
+        : trelloCards.filter(c => c.listId === activeTrelloFilter);
+
+    // Helper para pegar a cor da lista de um card
+    const getCardColorName = (listId: string) => {
+        const listIndex = uniqueLists.findIndex(l => l.id === listId);
+        return listIndex >= 0 ? uniqueLists[listIndex].colorName : 'slate';
+    };
+
+    // Estado 3: Visualização dos Cards
+    return (
+      <div className="pb-20 animate-fade-in flex flex-col h-full">
+        <div className="flex justify-between items-center mb-4 px-1 shrink-0">
+          <div className="flex items-center gap-2">
+            <h2 className="text-xl font-bold text-slate-100">Trello</h2>
+          </div>
+          <div className="flex gap-2">
+             <button onClick={() => { setIsSelectingLists(true); }} className="p-2 text-slate-500 hover:text-white bg-slate-800 rounded-full">
+               <Settings className="w-4 h-4" />
+             </button>
+             <button onClick={fetchTrelloCards} className={`p-2 bg-slate-800 rounded-full text-slate-300 hover:bg-slate-700 ${isLoadingTrello ? 'animate-spin' : ''}`}>
+               <RefreshCw className="w-4 h-4" />
+             </button>
+          </div>
+        </div>
+
+        {/* Filter Tabs */}
+        <div className="flex gap-2 mb-4 overflow-x-auto pb-2 shrink-0 no-scrollbar">
+           <button 
+              onClick={() => setActiveTrelloFilter('ALL')}
+              className={`whitespace-nowrap px-4 py-2 rounded-full text-xs font-bold transition-colors border ${activeTrelloFilter === 'ALL' ? 'bg-white text-slate-900 border-white' : 'bg-slate-800 text-slate-400 border-slate-700 hover:border-slate-500'}`}
+           >
+              Todos ({trelloCards.length})
+           </button>
+           {uniqueLists.map((list) => {
+              // Conta quantos cards tem nessa lista
+              const count = trelloCards.filter(c => c.listId === list.id).length;
+              
+              // Cores dinâmicas para os botões
+              // Simplificado: Se ativo usa a cor forte, se inativo fica padrão
+              const colorMap: Record<string, string> = {
+                blue: 'bg-blue-500 border-blue-500',
+                amber: 'bg-amber-500 border-amber-500',
+                emerald: 'bg-emerald-500 border-emerald-500',
+                purple: 'bg-purple-500 border-purple-500',
+                rose: 'bg-rose-500 border-rose-500',
+                cyan: 'bg-cyan-500 border-cyan-500',
+                indigo: 'bg-indigo-500 border-indigo-500',
+                lime: 'bg-lime-500 border-lime-500',
+              };
+              
+              const activeClass = colorMap[list.colorName] || 'bg-slate-500';
+
+              return (
+                <button 
+                    key={list.id}
+                    onClick={() => setActiveTrelloFilter(list.id)}
+                    className={`whitespace-nowrap px-4 py-2 rounded-full text-xs font-bold transition-colors border flex items-center gap-2 
+                        ${activeTrelloFilter === list.id 
+                            ? `${activeClass} text-white` 
+                            : 'bg-slate-800 text-slate-400 border-slate-700 hover:border-slate-500'}`}
+                >
+                    {list.name} <span className="bg-black/20 px-1.5 rounded-full text-[10px]">{count}</span>
+                </button>
+              );
+           })}
+        </div>
+
+        {/* Cards List */}
+        <div className="flex-1 overflow-y-auto min-h-0">
+            {filteredCards.length === 0 && !isLoadingTrello ? (
+            <div className="text-center py-10 text-slate-500">
+                <Filter className="w-10 h-10 mx-auto mb-3 opacity-30" />
+                <p>Nenhum cartão encontrado nesta lista.</p>
+            </div>
+            ) : (
+            <div className="space-y-3 pb-4">
+                {filteredCards.map(card => (
+                <TrelloCardItem 
+                    key={card.id} 
+                    card={card} 
+                    listColorName={getCardColorName(card.listId)}
+                />
+                ))}
+            </div>
+            )}
+        </div>
+      </div>
+    );
+  };
+
   const renderGmail = () => {
     const isVercel = typeof window !== 'undefined' && window.location.hostname.includes('vercel.app');
 
@@ -608,7 +1027,12 @@ const App: React.FC = () => {
                <div className="bg-slate-900/60 p-3 rounded border border-slate-800 text-xs">
                   <p className="font-bold text-slate-400 mb-2 uppercase text-[10px] tracking-wider">Como Corrigir (Obrigatório):</p>
                   <ul className="list-disc pl-4 space-y-2 text-slate-300 marker:text-red-500">
-                    <li>Acesse o <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener" className="text-blue-400 hover:underline">Google Cloud Console</a>.</li>
+                    <li>
+                        Acesse o: <br/>
+                        <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener" className="text-blue-400 hover:underline bg-slate-800 px-2 py-1 rounded border border-slate-700 inline-block mt-1">
+                          Google Cloud Console ↗
+                        </a>
+                    </li>
                     <li>
                       Edite a credencial 
                       <span className="block font-mono text-[10px] bg-black/30 px-1 py-0.5 rounded mt-0.5 text-slate-400 break-all">
@@ -629,24 +1053,6 @@ const App: React.FC = () => {
                       {copyFeedback ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
                     </button>
                   </div>
-                  
-                  <div className="mt-3 space-y-2">
-                    {isVercel ? (
-                      <p className="text-[10px] text-emerald-400/90 flex items-start gap-1 font-medium">
-                        <ShieldCheck className="w-3 h-3 mt-0.5 shrink-0" />
-                        <span>
-                          Ambiente Vercel detectado! Este endereço é FIXO. Adicione-o apenas uma vez no Google Cloud e funcionará para sempre.
-                        </span>
-                      </p>
-                    ) : (
-                       <p className="text-[10px] text-amber-400/80 flex items-start gap-1">
-                        <AlertTriangle className="w-3 h-3 mt-0.5 shrink-0" />
-                        <span>
-                          Em ambientes de teste (localhost/idx), a URL muda frequentemente. Você precisará atualizar o Google Cloud se a URL mudar.
-                        </span>
-                      </p>
-                    )}
-                  </div>
                </div>
             </div>
           ) : (
@@ -656,8 +1062,11 @@ const App: React.FC = () => {
                   <span className="text-xs font-bold text-slate-200">Configuração Necessária</span>
                </div>
                <p className="text-[10px] text-slate-400 mb-3">
-                 Para o login funcionar, adicione esta URL exata às "Origens JavaScript autorizadas" no Google Cloud:
+                 Se for o primeiro acesso, adicione esta URL às "Origens JavaScript autorizadas" no:
                </p>
+               <a href="https://console.cloud.google.com/apis/credentials" target="_blank" className="text-xs text-blue-400 font-semibold block mb-3 hover:underline">
+                 Abrir Google Cloud Console ↗
+               </a>
                <div className="flex items-center gap-2 bg-slate-900 rounded p-2 border border-slate-700 relative">
                   <code className="text-[10px] text-slate-300 break-all flex-1 font-mono pr-10">
                     {typeof window !== 'undefined' ? window.location.origin : '...'}
@@ -669,11 +1078,6 @@ const App: React.FC = () => {
                     {copyFeedback ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
                   </button>
                </div>
-               {isVercel && (
-                  <p className="text-[10px] text-emerald-500 mt-2 flex items-center gap-1">
-                    <Check className="w-3 h-3" /> URL Definitiva (Vercel)
-                  </p>
-               )}
             </div>
           )}
 
@@ -729,12 +1133,13 @@ const App: React.FC = () => {
         <div className="space-y-3">
            {emails.length === 0 && !isLoadingGmail && (
              <div className="text-center py-10 text-slate-500">
-               <p>Nenhum e-mail recente.</p>
+               <p className="font-medium text-slate-400">Nenhum e-mail encontrado na caixa de entrada.</p>
+               <p className="text-xs mt-2 opacity-50">Isso significa que sua caixa de entrada está vazia ou limpa.</p>
              </div>
            )}
            
            {emails.map(email => (
-             <div key={email.id} className={`p-4 rounded-xl border cursor-pointer transition-all ${email.isUnread ? 'bg-slate-800 border-slate-700 shadow-md' : 'bg-slate-900/50 border-slate-800 opacity-70'}`}>
+             <div key={email.id} className={`p-4 rounded-xl border cursor-pointer transition-all ${email.isUnread ? 'bg-slate-800 border-slate-700 shadow-md opacity-100' : 'bg-slate-900/30 border-slate-800 opacity-50 grayscale hover:grayscale-0 hover:opacity-80'}`}>
                <div className="flex justify-between items-start mb-1">
                  <div className="flex items-center gap-2 overflow-hidden">
                    <h3 className={`text-sm truncate ${email.isUnread ? 'font-bold text-slate-100' : 'font-medium text-slate-400'}`}>{email.sender}</h3>
@@ -747,9 +1152,6 @@ const App: React.FC = () => {
                </div>
                <h4 className={`text-xs mb-1 ${email.isUnread ? 'text-slate-200 font-medium' : 'text-slate-500'}`}>{email.subject}</h4>
                <p className="text-xs text-slate-500 line-clamp-1">{email.snippet}</p>
-               <div className="flex justify-end mt-2">
-                  <Star className="w-3 h-3 text-slate-600 hover:text-yellow-500 transition-colors" />
-               </div>
              </div>
            ))}
         </div>
@@ -761,11 +1163,16 @@ const App: React.FC = () => {
     <div className="min-h-screen bg-brand-900 text-slate-100 selection:bg-brand-secondary selection:text-brand-900 font-sans overflow-hidden">
       <div className="sticky top-0 z-40 bg-brand-900/80 backdrop-blur-md border-b border-slate-800 px-4 py-3 mb-6">
         <div className="flex items-center justify-center">
-          <img 
-            src="https://tidas.com.br/wp-content/uploads/2025/08/logo_tidas_rodan2.svg" 
-            alt="Tidas" 
-            className="h-12 w-auto object-contain py-0.5"
-          />
+          <button 
+             onClick={() => setCurrentView(ViewState.DASHBOARD)}
+             className="focus:outline-none active:scale-95 transition-transform"
+          >
+            <img 
+              src="https://tidas.com.br/wp-content/uploads/2025/08/logo_tidas_rodan2.svg" 
+              alt="Tidas" 
+              className="h-[45px] w-auto object-contain py-[0.45rem]"
+            />
+          </button>
         </div>
       </div>
 
@@ -774,6 +1181,7 @@ const App: React.FC = () => {
         {currentView === ViewState.SITES && renderSites()}
         {currentView === ViewState.FORMS && renderForms()}
         {currentView === ViewState.GMAIL && renderGmail()}
+        {currentView === ViewState.TRELLO && renderTrello()}
       </main>
 
       <TabNav 

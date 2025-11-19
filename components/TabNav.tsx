@@ -1,7 +1,7 @@
 
 import React from 'react';
 import { ViewState } from '../types';
-import { LayoutDashboard, Globe, MessageSquareText, Mail } from 'lucide-react';
+import { LayoutDashboard, Globe, MessageSquareText, Mail, Trello } from 'lucide-react';
 
 interface TabNavProps {
   currentView: ViewState;
@@ -19,6 +19,7 @@ const TabNav: React.FC<TabNavProps> = ({ currentView, onChangeView, badges }) =>
     { id: ViewState.SITES, label: 'Sites', icon: Globe, badge: badges.sites },
     { id: ViewState.FORMS, label: 'Forms', icon: MessageSquareText, badgeCount: badges.forms },
     { id: ViewState.GMAIL, label: 'E-Mail', icon: Mail, badgeCount: badges.gmail },
+    { id: ViewState.TRELLO, label: 'Trello', icon: Trello },
   ];
 
   return (
@@ -36,7 +37,7 @@ const TabNav: React.FC<TabNavProps> = ({ currentView, onChangeView, badges }) =>
               }`}
             >
               <div className="relative">
-                <Icon className={`w-6 h-6 ${isActive ? 'fill-current/10' : ''}`} />
+                <Icon className={`w-5 h-5 ${isActive ? 'fill-current/10' : ''}`} />
                 
                 {/* Badge para Sites (Bolinha simples se tiver erro) */}
                 {item.id === ViewState.SITES && item.badge && (

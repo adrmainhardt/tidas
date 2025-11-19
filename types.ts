@@ -38,9 +38,32 @@ export interface EmailMessage {
   label: 'Primary' | 'Updates' | 'Promotions';
 }
 
+// Tipos do Trello
+export interface TrelloBoard {
+  id: string;
+  name: string;
+}
+
+export interface TrelloList {
+  id: string;
+  name: string;
+}
+
+export interface TrelloCard {
+  id: string;
+  name: string;
+  desc: string;
+  dateLastActivity: Date;
+  listId: string;
+  listName?: string; // Preenchido pelo frontend
+  url: string;
+  labels: { id: string; name: string; color: string }[];
+}
+
 export enum ViewState {
   DASHBOARD = 'DASHBOARD',
   SITES = 'SITES',
   FORMS = 'FORMS',
-  GMAIL = 'GMAIL'
+  GMAIL = 'GMAIL',
+  TRELLO = 'TRELLO'
 }

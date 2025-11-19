@@ -10,7 +10,7 @@ import TrelloCardItem from './components/TrelloCardItem';
 import { fetchFormsFromWP, fetchSiteStats } from './services/wpService';
 import { fetchGmailMessages } from './services/gmailService';
 import { fetchBoards, fetchLists, fetchCardsFromList } from './services/trelloService';
-import { Activity, RefreshCw, AlertTriangle, WifiOff, Trash2, BarChart3, Mail, LogIn, Star, Copy, Info, Check, ShieldCheck, Trello, Settings, CheckSquare, ExternalLink, Filter } from 'lucide-react';
+import { Activity, RefreshCw, AlertTriangle, WifiOff, Trash2, BarChart3, Mail, LogIn, Star, Copy, Info, Check, ShieldCheck, Trello, Settings, CheckSquare, ExternalLink, Filter, HelpCircle } from 'lucide-react';
 
 // Declaração global para o Google Identity Services
 declare global {
@@ -64,6 +64,7 @@ const App: React.FC = () => {
   const [authError, setAuthError] = useState<boolean>(false); 
   const [authErrorType, setAuthErrorType] = useState<string | null>(null);
   const [apiNotEnabled, setApiNotEnabled] = useState<boolean>(false); // NOVO: Controle de API Desligada
+  const [showHelp, setShowHelp] = useState(false);
   const tokenClient = useRef<any>(null);
 
   // Trello States
@@ -314,12 +315,16 @@ const App: React.FC = () => {
     if (!token) return;
     
     setIsLoadingGmail(true);
-    setApiNotEnabled(false);
+    // Não resetamos apiNotEnabled aqui para não piscar a tela se já sabemos que está com erro
+    // setApiNotEnabled(false); 
 
     try {
       // Busca 60 mensagens para garantir que novos e-mails não fiquem de fora
       const messages = await fetchGmailMessages(token, 80);
       
+      // Se deu sucesso, garantimos que o erro de API suma
+      setApiNotEnabled(false);
+
       // Notificação de novos e-mails
       const currentUnread = messages.filter(m => m.isUnread);
       const newUnread = currentUnread.filter(m => !prevEmailIdsRef.current.includes(m.id));
@@ -336,10 +341,12 @@ const App: React.FC = () => {
     } catch (error: any) {
       console.error("Erro ao carregar Gmail:", error);
       
-      if (error.message === 'API_NOT_ENABLED') {
+      // Fallback robusto: Se a mensagem for API_NOT_ENABLED ou contiver o código 403 (que não seja auth expired)
+      if (error.message === 'API_NOT_ENABLED' || (error.message && error.message.includes('403'))) {
         setApiNotEnabled(true);
       } else if (error.message === 'AUTH_EXPIRED') {
         setGmailToken(null); // Força re-login
+        setApiNotEnabled(false);
       }
     } finally {
       setIsLoadingGmail(false);
@@ -821,7 +828,6 @@ const App: React.FC = () => {
     }
 
     // Estado 2: Seleção de Listas
-    // Apenas mostramos se não tiver board ou se estivermos explicitamente em modo de seleção
     if (!trelloBoardId || isSelectingLists) {
       return (
         <div className="pb-20 animate-fade-in px-4">
@@ -864,7 +870,6 @@ const App: React.FC = () => {
                           if (isSelected) {
                             setTrelloListIds(prev => prev.filter(id => id !== list.id));
                           } else {
-                            // Sem limites! Adiciona quantas quiser.
                             setTrelloListIds(prev => [...prev, list.id]);
                           }
                         }}
@@ -883,7 +888,7 @@ const App: React.FC = () => {
 
                <button 
                  onClick={() => {
-                     setIsSelectingLists(false); // Sai do modo de seleção
+                     setIsSelectingLists(false); 
                      fetchTrelloCards();
                  }}
                  disabled={trelloListIds.length === 0}
@@ -899,13 +904,12 @@ const App: React.FC = () => {
 
     // Filter Logic for State 3
     const uniqueLists = trelloListIds.map((id, idx) => {
-         // Tenta pegar o nome dos cards carregados ou da lista disponível
          const fromCard = trelloCards.find(c => c.listId === id)?.listName;
          const fromAvailable = availableLists.find(l => l.id === id)?.name;
          return { 
            id, 
            name: fromCard || fromAvailable || 'Lista',
-           colorName: TRELLO_COLORS[idx % TRELLO_COLORS.length] // Atribui uma cor cíclica
+           colorName: TRELLO_COLORS[idx % TRELLO_COLORS.length]
          };
     });
 
@@ -913,13 +917,11 @@ const App: React.FC = () => {
         ? trelloCards 
         : trelloCards.filter(c => c.listId === activeTrelloFilter);
 
-    // Helper para pegar a cor da lista de um card
     const getCardColorName = (listId: string) => {
         const listIndex = uniqueLists.findIndex(l => l.id === listId);
         return listIndex >= 0 ? uniqueLists[listIndex].colorName : 'slate';
     };
 
-    // Estado 3: Visualização dos Cards
     return (
       <div className="pb-20 animate-fade-in flex flex-col h-full">
         <div className="flex justify-between items-center mb-4 px-1 shrink-0">
@@ -945,11 +947,7 @@ const App: React.FC = () => {
               Todos ({trelloCards.length})
            </button>
            {uniqueLists.map((list) => {
-              // Conta quantos cards tem nessa lista
               const count = trelloCards.filter(c => c.listId === list.id).length;
-              
-              // Cores dinâmicas para os botões
-              // Simplificado: Se ativo usa a cor forte, se inativo fica padrão
               const colorMap: Record<string, string> = {
                 blue: 'bg-blue-500 border-blue-500',
                 amber: 'bg-amber-500 border-amber-500',
@@ -960,7 +958,6 @@ const App: React.FC = () => {
                 indigo: 'bg-indigo-500 border-indigo-500',
                 lime: 'bg-lime-500 border-lime-500',
               };
-              
               const activeClass = colorMap[list.colorName] || 'bg-slate-500';
 
               return (
@@ -1002,8 +999,6 @@ const App: React.FC = () => {
   };
 
   const renderGmail = () => {
-    const isVercel = typeof window !== 'undefined' && window.location.hostname.includes('vercel.app');
-
     // CENA DE ERRO CRÍTICO: API NÃO ATIVADA NO GOOGLE
     if (gmailToken && apiNotEnabled) {
       return (
@@ -1021,7 +1016,7 @@ const App: React.FC = () => {
                <h3 className="font-bold text-white text-sm">Como Resolver (30 segundos):</h3>
                <ol className="list-decimal pl-4 text-xs text-slate-300 space-y-3">
                  <li>
-                   Clique no botão abaixo para abrir a Biblioteca do Google.
+                   Clique no botão abaixo.
                  </li>
                  <li>
                    Na página que abrir, clique no botão azul <b className="text-blue-400">ENABLE</b> (ou ATIVAR).
@@ -1033,7 +1028,7 @@ const App: React.FC = () => {
             </div>
 
             <a 
-               href={`https://console.developers.google.com/apis/library/gmail.googleapis.com?project=${GOOGLE_CLIENT_ID.split('-')[0]}`}
+               href={`https://console.developers.google.com/apis/api/gmail.googleapis.com/overview?project=${GOOGLE_CLIENT_ID.split('-')[0]}`}
                target="_blank"
                rel="noopener noreferrer"
                className="w-full max-w-sm bg-blue-600 hover:bg-blue-500 text-white font-bold py-4 rounded-xl transition-all shadow-lg shadow-blue-900/30 flex items-center justify-center gap-2 mb-4"
@@ -1041,9 +1036,13 @@ const App: React.FC = () => {
                ATIVAR GMAIL API AGORA <ExternalLink className="w-4 h-4" />
             </a>
 
+            <div className="text-[10px] text-slate-500 max-w-xs">
+              <p>Se o botão acima não funcionar, acesse o <a href="https://console.cloud.google.com/" target="_blank" className="text-slate-400 underline">Google Cloud Console</a>, selecione o projeto e busque por "Gmail API" na biblioteca.</p>
+            </div>
+
             <button 
               onClick={() => fetchGmail()}
-              className="text-slate-400 text-sm hover:text-white underline underline-offset-4"
+              className="text-slate-400 text-sm hover:text-white underline underline-offset-4 mt-6"
             >
               Já ativei, tentar novamente
             </button>
@@ -1080,63 +1079,44 @@ const App: React.FC = () => {
                      </p>
                   </div>
                </div>
+            </div>
+          ) : null}
 
-               <div className="bg-slate-900/60 p-3 rounded border border-slate-800 text-xs">
-                  <p className="font-bold text-slate-400 mb-2 uppercase text-[10px] tracking-wider">Como Corrigir (Obrigatório):</p>
-                  <ul className="list-disc pl-4 space-y-2 text-slate-300 marker:text-red-500">
-                    <li>
-                        Acesse o: <br/>
-                        <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener" className="text-blue-400 hover:underline bg-slate-800 px-2 py-1 rounded border border-slate-700 inline-block mt-1">
-                          Google Cloud Console ↗
-                        </a>
-                    </li>
-                    <li>
-                      Edite a credencial 
-                      <span className="block font-mono text-[10px] bg-black/30 px-1 py-0.5 rounded mt-0.5 text-slate-400 break-all">
-                        {GOOGLE_CLIENT_ID.substring(0, 15)}...
-                      </span>
-                    </li>
-                    <li>Adicione a URL abaixo em <b>Origens JavaScript autorizadas</b>.</li>
-                  </ul>
-                  
-                  <div className="flex items-center gap-2 mt-3 bg-black/40 rounded p-2 border border-slate-700/50 relative group">
-                    <code className="text-emerald-400 break-all flex-1 font-mono text-[10px] pr-10">
-                      {typeof window !== 'undefined' ? window.location.origin : '...'}
-                    </code>
-                    <button 
-                      onClick={copyOriginToClipboard}
-                      className="absolute right-1 top-1 bottom-1 bg-slate-700 hover:bg-slate-600 text-white text-[10px] px-2 rounded transition-colors flex items-center justify-center"
-                    >
-                      {copyFeedback ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
-                    </button>
+          {/* Dica de Configuração Retrátil */}
+          <div className="w-full mb-6">
+             <button 
+               onClick={() => setShowHelp(!showHelp)}
+               className="flex items-center gap-2 text-xs text-slate-500 hover:text-slate-300 mx-auto mb-2 transition-colors"
+             >
+               <HelpCircle className="w-3 h-3" /> Problemas para conectar?
+             </button>
+
+             {showHelp && (
+                <div className="bg-slate-800/50 rounded-lg p-4 border border-slate-700 w-full text-left animate-fade-in">
+                  <div className="flex items-center gap-2 mb-2">
+                      <Info className="w-4 h-4 text-blue-400 shrink-0" />
+                      <span className="text-xs font-bold text-slate-200">Configuração Necessária</span>
                   </div>
-               </div>
-            </div>
-          ) : (
-            <div className="bg-slate-800/50 rounded-lg p-4 border border-slate-700 mb-6 w-full text-left">
-               <div className="flex items-center gap-2 mb-2">
-                  <Info className="w-4 h-4 text-blue-400 shrink-0" />
-                  <span className="text-xs font-bold text-slate-200">Configuração Necessária</span>
-               </div>
-               <p className="text-[10px] text-slate-400 mb-3">
-                 Se for o primeiro acesso, adicione esta URL às "Origens JavaScript autorizadas" no:
-               </p>
-               <a href="https://console.cloud.google.com/apis/credentials" target="_blank" className="text-xs text-blue-400 font-semibold block mb-3 hover:underline">
-                 Abrir Google Cloud Console ↗
-               </a>
-               <div className="flex items-center gap-2 bg-slate-900 rounded p-2 border border-slate-700 relative">
-                  <code className="text-[10px] text-slate-300 break-all flex-1 font-mono pr-10">
-                    {typeof window !== 'undefined' ? window.location.origin : '...'}
-                  </code>
-                  <button 
-                    onClick={copyOriginToClipboard}
-                    className="absolute right-1.5 top-1.5 text-xs p-1.5 rounded transition-all shrink-0 text-slate-400 hover:text-white hover:bg-slate-700"
-                  >
-                    {copyFeedback ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
-                  </button>
-               </div>
-            </div>
-          )}
+                  <p className="text-[10px] text-slate-400 mb-3">
+                    Se for o primeiro acesso, adicione esta URL às "Origens JavaScript autorizadas" no Console:
+                  </p>
+                  <a href="https://console.cloud.google.com/apis/credentials" target="_blank" className="text-xs text-blue-400 font-semibold block mb-3 hover:underline">
+                    Abrir Google Cloud Console ↗
+                  </a>
+                  <div className="flex items-center gap-2 bg-slate-900 rounded p-2 border border-slate-700 relative">
+                      <code className="text-[10px] text-slate-300 break-all flex-1 font-mono pr-10">
+                        {typeof window !== 'undefined' ? window.location.origin : '...'}
+                      </code>
+                      <button 
+                        onClick={copyOriginToClipboard}
+                        className="absolute right-1.5 top-1.5 text-xs p-1.5 rounded transition-all shrink-0 text-slate-400 hover:text-white hover:bg-slate-700"
+                      >
+                        {copyFeedback ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+                      </button>
+                  </div>
+                </div>
+             )}
+          </div>
 
           <button 
             onClick={handleConnectGmail}

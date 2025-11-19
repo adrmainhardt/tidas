@@ -48,29 +48,25 @@ export const fetchGmailMessages = async (accessToken: string, maxResults: number
 
     if (!listResponse.ok) {
       const errText = await listResponse.text();
-      
-      // Tenta detectar erro de API Desativada
-      try {
-        const errJson = JSON.parse(errText);
-        // Código 403 + mensagem específica de 'enabled' ou 'accessNotConfigured'
-        if (listResponse.status === 403) {
-           const message = errJson.error?.message || '';
-           const reason = errJson.error?.errors?.[0]?.reason || '';
-           
-           if (message.includes('Enable it by visiting') || reason === 'accessNotConfigured') {
-             throw new Error("API_NOT_ENABLED");
-           }
-        }
-      } catch (parseError) {
-        // Ignora erro de parse e segue para erro genérico
+      console.log("Gmail API Error Body:", errText); // Log para debug
+
+      // DETECÇÃO ROBUSTA DE API DESATIVADA
+      // Verifica se é 403 e se contém qualquer menção à API do Gmail estar desativada ou não configurada
+      if (listResponse.status === 403) {
+         if (errText.includes("Gmail API") || 
+             errText.includes("accessNotConfigured") || 
+             errText.includes("Enable it by visiting") || 
+             errText.includes("SERVICE_DISABLED")) {
+           throw new Error("API_NOT_ENABLED");
+         }
       }
 
       if (listResponse.status === 401) {
         throw new Error("AUTH_EXPIRED");
       }
       
-      console.error("Gmail API Error Body:", errText);
-      throw new Error(`Erro na API Gmail: ${listResponse.status}`);
+      // Se for 403 mas não caiu no filtro acima, lançamos com 403 no texto para o App.tsx pegar no fallback
+      throw new Error(`Erro na API Gmail: ${listResponse.status} - ${errText.substring(0, 100)}`);
     }
 
     const listData: GmailListResponse = await listResponse.json();

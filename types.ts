@@ -28,8 +28,19 @@ export interface FormSubmission {
   isRead: boolean;
 }
 
+export interface EmailMessage {
+  id: string;
+  sender: string;
+  subject: string;
+  snippet: string;
+  date: Date;
+  isUnread: boolean;
+  label: 'Primary' | 'Updates' | 'Promotions';
+}
+
 export enum ViewState {
   DASHBOARD = 'DASHBOARD',
   SITES = 'SITES',
-  FORMS = 'FORMS'
+  FORMS = 'FORMS',
+  GMAIL = 'GMAIL'
 }

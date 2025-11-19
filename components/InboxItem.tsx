@@ -1,16 +1,16 @@
 
 import React, { useState, useRef } from 'react';
 import { FormSubmission } from '../types';
-import { Mail, Calendar, ChevronRight, Trash2, Globe } from 'lucide-react';
+import { Mail, Calendar, ChevronRight, Trash2, Globe, Eye } from 'lucide-react';
 
 interface InboxItemProps {
   form: FormSubmission;
   siteName: string;
-  onMarkAsRead: () => void;
+  onSelect: () => void;
   onDismiss: () => void;
 }
 
-const InboxItem: React.FC<InboxItemProps> = ({ form, siteName, onMarkAsRead, onDismiss }) => {
+const InboxItem: React.FC<InboxItemProps> = ({ form, siteName, onSelect, onDismiss }) => {
   const [translateX, setTranslateX] = useState(0);
   const [isDragging, setIsDragging] = useState(false);
   const touchStartX = useRef<number | null>(null);
@@ -65,13 +65,13 @@ const InboxItem: React.FC<InboxItemProps> = ({ form, siteName, onMarkAsRead, onD
 
   const handleClick = () => {
     if (Math.abs(translateX) < 5) {
-      onMarkAsRead();
+      onSelect();
     }
   };
 
   const handleReadButtonClick = (e: React.MouseEvent) => {
     e.stopPropagation(); 
-    onMarkAsRead();
+    onSelect();
   };
 
   const isUnread = !form.isRead;
@@ -137,14 +137,16 @@ const InboxItem: React.FC<InboxItemProps> = ({ form, siteName, onMarkAsRead, onD
             {form.timestamp.toLocaleDateString()} {form.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
           </div>
           
-          {isUnread && (
-            <button 
-                onClick={handleReadButtonClick}
-                className="flex items-center text-blue-400 text-xs font-bold hover:text-blue-300 active:scale-95 transition-transform px-2 py-1 rounded bg-blue-500/10 hover:bg-blue-500/20"
-            >
-              Ler <ChevronRight className="w-3 h-3 ml-0.5" />
-            </button>
-          )}
+          <button 
+              onClick={handleReadButtonClick}
+              className={`flex items-center text-xs font-bold px-2 py-1 rounded transition-transform active:scale-95
+                ${isUnread 
+                  ? 'text-blue-400 bg-blue-500/10 hover:bg-blue-500/20 hover:text-blue-300' 
+                  : 'text-slate-500 bg-slate-800 hover:bg-slate-700 hover:text-slate-300'
+                }`}
+          >
+            {isUnread ? 'Ler' : 'Ver'} <ChevronRight className="w-3 h-3 ml-0.5" />
+          </button>
         </div>
       </div>
     </div>

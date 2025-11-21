@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { DEFAULT_SITES, MOCK_FORMS, GOOGLE_CLIENT_ID } from './constants';
-import { SiteConfig, SiteStatus, ViewState, FormSubmission, EmailMessage, TrelloBoard, TrelloList, TrelloCard, CalendarEvent } from './types';
+import { SiteConfig, SiteStatus, ViewState, FormSubmission, EmailMessage, TrelloBoard, TrelloList, TrelloCard, CalendarEvent, SlackMessage } from './types';
 import MonitorCard from './components/MonitorCard';
 import InboxItem from './components/InboxItem';
 import EmailItem from './components/EmailItem';
@@ -14,9 +14,9 @@ import { fetchFormsFromWP, fetchSiteStats } from './services/wpService';
 import { fetchGmailMessages } from './services/gmailService';
 import { fetchCalendarEvents } from './services/calendarService';
 import { fetchBoards, fetchLists, fetchCardsFromList } from './services/trelloService';
-import { sendSlackNotification } from './services/slackService';
+import { sendSlackNotification, fetchSlackDMs } from './services/slackService';
 import { generateDashboardInsight } from './services/geminiService';
-import { Activity, RefreshCw, AlertTriangle, WifiOff, Trash2, BarChart3, Mail, LogIn, LogOut, Copy, Info, Check, Trello, Settings, CheckSquare, ExternalLink, HelpCircle, Bell, CalendarDays, Calendar, Slack, Sparkles, X, Globe, MessageSquareText, Save, Send } from 'lucide-react';
+import { Activity, RefreshCw, AlertTriangle, WifiOff, Trash2, BarChart3, Mail, LogIn, LogOut, Copy, Info, Check, Trello, Settings, CheckSquare, ExternalLink, HelpCircle, Bell, CalendarDays, Calendar, Slack, Sparkles, X, Globe, MessageSquareText, Save, Send, User, ChevronDown, ChevronUp, AlertOctagon } from 'lucide-react';
 
 // Declaração global para o Google Identity Services
 declare global {
@@ -129,9 +129,12 @@ const App: React.FC = () => {
   const [isSelectingLists, setIsSelectingLists] = useState(false); 
   const [activeTrelloFilter, setActiveTrelloFilter] = useState<string>('ALL');
 
-  // Slack State
-  const [slackWebhook, setSlackWebhook] = usePersistedState<string>('monitor_slack_webhook', '');
-  const [slackTestStatus, setSlackTestStatus] = useState<'idle' | 'sending' | 'success' | 'error'>('idle');
+  // Slack State (UPDATED for Reading)
+  const [slackToken, setSlackToken] = usePersistedState<string>('monitor_slack_token', '');
+  const [slackMessages, setSlackMessages] = useState<SlackMessage[]>([]);
+  const [isLoadingSlack, setIsLoadingSlack] = useState(false);
+  const [slackError, setSlackError] = useState<string | null>(null);
+  const [showSlackHelp, setShowSlackHelp] = useState(false);
 
   // Persistência de estados de leitura e exclusão
   const [readFormIds, setReadFormIds] = usePersistedState<string[]>('monitor_read_forms_v2', []);
@@ -143,12 +146,12 @@ const App: React.FC = () => {
   const sitesRef = useRef<SiteConfig[]>(DEFAULT_SITES);
   const prevEmailIdsRef = useRef<string[]>([]);
   const prevTrelloCardIdsRef = useRef<string[]>([]);
-  const slackWebhookRef = useRef<string>('');
+  const slackTokenRef = useRef<string>('');
 
   useEffect(() => { deletedIdsRef.current = deletedFormIds || []; }, [deletedFormIds]);
   useEffect(() => { readIdsRef.current = readFormIds || []; }, [readFormIds]);
   useEffect(() => { sitesRef.current = sites; }, [sites]);
-  useEffect(() => { slackWebhookRef.current = slackWebhook; }, [slackWebhook]);
+  useEffect(() => { slackTokenRef.current = slackToken; }, [slackToken]);
 
   useEffect(() => {
     if (trelloListIds.length === 0) setIsSelectingLists(true);
@@ -255,8 +258,8 @@ const App: React.FC = () => {
 
       if (latency > 3000 && (site.responseTime || 0) < 3000 && site.status === SiteStatus.ONLINE) {
         sendNotification('Instabilidade', `O site ${site.name} está lento.`);
-        if (slackWebhookRef.current) {
-           sendSlackNotification(slackWebhookRef.current, `⚠️ *Instabilidade*: O site ${site.name} está respondendo lentamente (${latency}ms).`);
+        if (slackTokenRef.current) {
+           sendSlackNotification(slackTokenRef.current, `⚠️ *Instabilidade*: O site ${site.name} está respondendo lentamente (${latency}ms).`);
         }
       }
 
@@ -271,8 +274,8 @@ const App: React.FC = () => {
     } catch (error) {
       if (site.status === SiteStatus.ONLINE || site.status === SiteStatus.CHECKING) {
          sendNotification('Site Offline!', `URGENTE: ${site.name} fora do ar.`);
-         if (slackWebhookRef.current) {
-           sendSlackNotification(slackWebhookRef.current, `🚨 *OFFLINE*: O site ${site.name} parece estar fora do ar!`);
+         if (slackTokenRef.current) {
+           sendSlackNotification(slackTokenRef.current, `🚨 *OFFLINE*: O site ${site.name} parece estar fora do ar!`);
         }
       }
       return { ...site, status: SiteStatus.OFFLINE, lastChecked: new Date(), onlineUsers: 0, monthlyVisitors: site.monthlyVisitors };
@@ -324,11 +327,11 @@ const App: React.FC = () => {
              sendNotification('Novo Formulário', `Você recebeu ${newArrivals.length} nova(s) mensagem(ns).`);
              
              // Notificação Slack
-             if (slackWebhookRef.current) {
+             if (slackTokenRef.current) {
                newArrivals.forEach(form => {
                  const siteName = sitesRef.current.find(s => s.id === form.siteId)?.name || 'Site';
                  const slackMsg = `📩 *Nova mensagem em ${siteName}*\n*De:* ${form.senderName} (${form.senderEmail})\n*Mensagem:* ${form.message}`;
-                 sendSlackNotification(slackWebhookRef.current, slackMsg);
+                 sendSlackNotification(slackTokenRef.current, slackMsg);
                });
              }
           }
@@ -461,6 +464,31 @@ const App: React.FC = () => {
     } catch (e) { console.error("Erro Trello", e); } finally { setIsLoadingTrello(false); }
   };
 
+  // Slack Fetch Logic (Receiving DMs)
+  const refreshSlackMessages = async () => {
+    if (!slackToken) return;
+    setIsLoadingSlack(true);
+    setSlackError(null);
+    try {
+      const messages = await fetchSlackDMs(slackToken);
+      setSlackMessages(messages);
+    } catch (e: any) {
+      // Tratamento amigável de erros
+      if (e.message === 'MISSING_SCOPE') {
+         setSlackError('Faltam permissões. Reinstale o App no Slack.');
+      } else if (e.message === 'CORS_ERROR' || e.message === 'NETWORK_ERROR') {
+         setSlackError('Bloqueio de navegador (CORS).');
+      } else if (e.message === 'INVALID_TOKEN') {
+         setSlackError('Token inválido.');
+      } else {
+         console.warn("Slack Fetch Warning:", e);
+         setSlackError('Erro de conexão.');
+      }
+    } finally {
+      setIsLoadingSlack(false);
+    }
+  };
+
   // Insight Generation
   const handleGenerateInsight = async () => {
     setIsLoadingInsight(true);
@@ -482,15 +510,6 @@ const App: React.FC = () => {
     setIsLoadingInsight(false);
   };
 
-  // Slack Test Handler
-  const handleTestSlack = async () => {
-    if (!slackWebhook) return;
-    setSlackTestStatus('sending');
-    const success = await sendSlackNotification(slackWebhook, "🔔 *Teste Tidas*: Integração funcionando corretamente!");
-    setSlackTestStatus(success ? 'success' : 'error');
-    setTimeout(() => setSlackTestStatus('idle'), 3000);
-  };
-
   // Init Loop
   useEffect(() => {
     let isMounted = true;
@@ -499,6 +518,7 @@ const App: React.FC = () => {
          await checkAllSites();
          await syncForms();
          if (googleToken) fetchGoogleData(googleToken);
+         if (slackToken) refreshSlackMessages();
          
          if (trelloKey && trelloToken && trelloListIds.length > 0) {
             try {
@@ -518,12 +538,13 @@ const App: React.FC = () => {
         await syncForms();
         setSites(await Promise.all(sitesRef.current.map(site => checkSiteStatus(site))));
         if (googleToken) fetchGoogleData(googleToken);
+        if (slackTokenRef.current) refreshSlackMessages(); // Polling Slack
         if (trelloKey && trelloToken && trelloListIds.length > 0) fetchTrelloCards();
       }
     }, 10000);
 
     return () => { isMounted = false; clearInterval(intervalId); };
-  }, [googleToken]); 
+  }, [googleToken, slackToken]); 
 
   // Handlers
   const handleMarkAsRead = (id: string) => {
@@ -713,19 +734,20 @@ const App: React.FC = () => {
   const renderGoogleHub = () => {
     const unreadEmails = emails.filter(e => e.isUnread).length;
     
+    const now = new Date();
     const todayEvents = events.filter(e => {
-        const now = new Date();
-        return e.start.getDate() === now.getDate() && 
-               e.start.getMonth() === now.getMonth() && 
-               e.start.getFullYear() === now.getFullYear();
+        const eventStart = new Date(e.start);
+        return eventStart.getDate() === now.getDate() && 
+               eventStart.getMonth() === now.getMonth() && 
+               eventStart.getFullYear() === now.getFullYear();
     });
 
     const upcomingEvents = events.filter(e => {
-        const now = new Date();
-        now.setHours(0,0,0,0);
-        const eventDate = new Date(e.start);
-        eventDate.setHours(0,0,0,0);
-        return eventDate > now;
+        const eventStart = new Date(e.start);
+        const isSameDay = eventStart.getDate() === now.getDate() && 
+                          eventStart.getMonth() === now.getMonth() && 
+                          eventStart.getFullYear() === now.getFullYear();
+        return eventStart > now && !isSameDay;
     });
 
     return (
@@ -768,52 +790,130 @@ const App: React.FC = () => {
 
              {/* Content Area */}
              {googleSubTab === 'slack' && (
-               <div className="px-2 animate-fade-in">
-                  <div className="bg-slate-800 rounded-xl p-5 border border-slate-700">
-                      <div className="flex items-center gap-3 mb-4">
-                         <div className="p-2 bg-emerald-500/10 rounded-lg"><Slack className="w-6 h-6 text-emerald-400" /></div>
-                         <div>
-                             <h3 className="font-bold text-slate-100">Configuração Slack</h3>
-                             <p className="text-xs text-slate-400">Receba alertas no seu canal</p>
-                         </div>
+               <div className="px-1 animate-fade-in">
+                  {!slackToken ? (
+                      <div className="bg-slate-800 rounded-xl p-5 border border-slate-700">
+                        <div className="flex items-center gap-3 mb-4">
+                           <div className="p-2 bg-emerald-500/10 rounded-lg"><Slack className="w-6 h-6 text-emerald-400" /></div>
+                           <div>
+                               <h3 className="font-bold text-slate-100">Conectar Slack</h3>
+                               <p className="text-xs text-slate-400">Para ler e responder DMs</p>
+                           </div>
+                        </div>
+                        
+                        {/* ALERTA CRÍTICO SOBRE O ERRO ENTERPRISE */}
+                        <div className="bg-rose-900/20 border border-rose-500/40 rounded-lg p-3 mb-5">
+                           <div className="flex items-start gap-2">
+                               <AlertOctagon className="w-5 h-5 text-rose-400 shrink-0 mt-0.5" />
+                               <div>
+                                   <h4 className="font-bold text-rose-300 text-xs uppercase mb-1">Erro "Permissão Enterprise"?</h4>
+                                   <p className="text-[11px] text-rose-200 leading-relaxed">
+                                      Se você viu o erro <i>"Apps com este recurso só estão disponíveis para clientes do Enterprise"</i>, é porque você adicionou <b><code>admin.users:read</code></b>.
+                                   </p>
+                                   <div className="bg-black/30 rounded p-2 mt-2">
+                                      <p className="text-[10px] text-rose-200 font-bold">COMO CORRIGIR:</p>
+                                      <ol className="list-decimal pl-3 text-[10px] text-rose-200/80 mt-1 space-y-1">
+                                         <li>Volte em <b>OAuth & Permissions</b>.</li>
+                                         <li>Remova <Trash2 className="inline w-3 h-3"/> <code>admin.users:read</code>.</li>
+                                         <li>Deixe apenas: <code>users:read</code>.</li>
+                                         <li>Clique em <b>Reinstall to Workspace</b>.</li>
+                                      </ol>
+                                   </div>
+                               </div>
+                           </div>
+                        </div>
+
+                        <div className="space-y-4">
+                            <div>
+                                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">User Token (xoxp-...)</label>
+                                <input 
+                                  type="password" 
+                                  value={slackToken}
+                                  onChange={(e) => setSlackToken(e.target.value)}
+                                  placeholder="xoxp-..."
+                                  className="w-full bg-slate-900 border border-slate-700 rounded-lg p-3 text-sm text-slate-200 focus:ring-2 focus:ring-emerald-500 outline-none"
+                                />
+                            </div>
+                            
+                            {/* HELP SECTION PARA GERAR O TOKEN CORRETO */}
+                            <div className="bg-slate-900/50 p-3 rounded-lg border border-slate-700/50">
+                                <button onClick={() => setShowSlackHelp(!showSlackHelp)} className="flex justify-between items-center w-full text-xs font-bold text-slate-300 mb-1">
+                                   <span>Passo a passo rápido</span>
+                                   {showSlackHelp ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+                                </button>
+                                
+                                {showSlackHelp && (
+                                  <ol className="text-[10px] text-slate-400 list-decimal pl-4 space-y-2 mt-2">
+                                     <li>No menu lateral da API, clique em <b>OAuth & Permissions</b>.</li>
+                                     <li>
+                                       Role até <b>User Token Scopes</b> e adicione: 
+                                       <br/><code>channels:history</code>, <code>im:history</code>, <code>users:read</code>.
+                                     </li>
+                                     <li className="text-yellow-300 font-bold">Suba a página e clique em <b>"Reinstall to Workspace"</b>.</li>
+                                     <li>Copie o token que começa com <b>xoxp-...</b>.</li>
+                                  </ol>
+                                )}
+                            </div>
+
+                            <button onClick={refreshSlackMessages} className="w-full bg-emerald-600 text-white font-bold py-3 rounded-xl">Salvar e Conectar</button>
+                        </div>
                       </div>
-                      
-                      <div className="space-y-4">
-                          <div>
-                              <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Webhook URL</label>
-                              <input 
-                                type="text" 
-                                value={slackWebhook}
-                                onChange={(e) => setSlackWebhook(e.target.value)}
-                                placeholder="https://hooks.slack.com/services/..."
-                                className="w-full bg-slate-900 border border-slate-700 rounded-lg p-3 text-sm text-slate-200 focus:ring-2 focus:ring-emerald-500 outline-none"
-                              />
+                  ) : (
+                    <div>
+                       <div className="flex justify-between items-center mb-3 px-1">
+                          <div className="flex items-center gap-2">
+                            <h3 className="text-sm font-bold text-slate-300">Mensagens Diretas</h3>
+                            {slackError && (
+                                <span className="text-[9px] text-rose-200 bg-rose-900/50 px-2 py-1 rounded border border-rose-500/30 max-w-[150px] leading-tight">
+                                    {slackError === 'Bloqueio de navegador (CORS).' ? 'Bloqueio CORS. Use extensão de navegador.' : slackError}
+                                </span>
+                            )}
                           </div>
-                          
-                          <div className="flex items-center justify-between pt-2">
-                              <a href="https://api.slack.com/messaging/webhooks" target="_blank" className="text-xs text-blue-400 flex items-center gap-1 hover:text-blue-300"><ExternalLink className="w-3 h-3" /> Ajuda</a>
-                              <button 
-                                 onClick={handleTestSlack}
-                                 disabled={!slackWebhook || slackTestStatus === 'sending'}
-                                 className={`px-4 py-2 rounded-lg text-xs font-bold flex items-center gap-2 transition-all ${
-                                    slackTestStatus === 'success' ? 'bg-emerald-500 text-white' :
-                                    slackTestStatus === 'error' ? 'bg-rose-500 text-white' :
-                                    'bg-slate-700 text-slate-200 hover:bg-slate-600'
-                                 }`}
-                              >
-                                  {slackTestStatus === 'sending' ? <RefreshCw className="w-3 h-3 animate-spin" /> : 
-                                   slackTestStatus === 'success' ? <Check className="w-3 h-3" /> :
-                                   slackTestStatus === 'error' ? <X className="w-3 h-3" /> :
-                                   <Send className="w-3 h-3" />
-                                  }
-                                  {slackTestStatus === 'sending' ? 'Enviando...' : 
-                                   slackTestStatus === 'success' ? 'Enviado!' : 
-                                   slackTestStatus === 'error' ? 'Erro' : 
-                                   'Testar Envio'}
-                              </button>
+                          <div className="flex gap-2">
+                             <button onClick={() => setSlackToken('')} className="p-1.5 text-slate-500 hover:text-slate-300"><Settings className="w-4 h-4" /></button>
+                             <button onClick={refreshSlackMessages} className={`p-1.5 bg-emerald-500/10 text-emerald-400 rounded-full ${isLoadingSlack ? 'animate-spin' : ''}`}><RefreshCw className="w-4 h-4" /></button>
                           </div>
-                      </div>
-                  </div>
+                       </div>
+
+                       {/* Aviso se usar token xoxb */}
+                       {slackToken.startsWith('xoxb') && (
+                          <div className="bg-amber-500/10 border border-amber-500/20 p-3 rounded-xl mb-4 text-[11px] text-amber-200">
+                             ⚠️ Você está usando um token de <b>Bot</b>. Ele só vê mensagens enviadas para o App, não para você. Para ver suas DMs, gere um token <b>User (xoxp)</b>.
+                          </div>
+                       )}
+
+                       {/* Aviso CORS Explicativo */}
+                       {slackError === 'Bloqueio de navegador (CORS).' && (
+                           <div className="bg-slate-800 border border-slate-700 p-3 rounded-xl mb-4">
+                               <h4 className="text-xs font-bold text-slate-300 mb-1">Bloqueio de Navegador</h4>
+                               <p className="text-[11px] text-slate-400 leading-relaxed">
+                                  O Slack bloqueia conexões diretas do navegador. Para uso pessoal, você pode instalar uma extensão como <b>"Allow CORS"</b> no Chrome/Edge.
+                               </p>
+                           </div>
+                       )}
+
+                       {slackMessages.length === 0 && !isLoadingSlack && !slackError && (
+                          <div className="text-center py-8 text-slate-500 border border-dashed border-slate-700 rounded-xl">
+                              <p className="text-sm">Nenhuma mensagem recente encontrada.</p>
+                          </div>
+                       )}
+
+                       {slackMessages.map(msg => (
+                           <div key={msg.id} className="bg-slate-800 p-3 rounded-xl border border-slate-700 mb-2 flex gap-3">
+                               <div className="w-10 h-10 rounded-full bg-slate-700 overflow-hidden shrink-0">
+                                  {msg.avatar ? <img src={msg.avatar} className="w-full h-full object-cover" /> : <User className="w-6 h-6 m-2 text-slate-500" />}
+                               </div>
+                               <div className="flex-1 min-w-0">
+                                   <div className="flex justify-between items-start">
+                                       <span className="font-bold text-sm text-slate-200">{msg.userName}</span>
+                                       <span className="text-[10px] text-slate-500">{msg.timestamp.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</span>
+                                   </div>
+                                   <p className="text-xs text-slate-400 mt-1 line-clamp-2">{msg.text}</p>
+                               </div>
+                           </div>
+                       ))}
+                    </div>
+                  )}
                </div>
              )}
 
@@ -843,7 +943,7 @@ const App: React.FC = () => {
 
                        {/* Próximos Eventos */}
                        <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3 px-1 mt-4 border-t border-slate-700/50 pt-4">Próximos Dias</h3>
-                       {upcomingEvents.length === 0 && <p className="text-slate-500 text-sm text-center py-4">Agenda livre nos próximos 30 dias.</p>}
+                       {upcomingEvents.length === 0 && <p className="text-slate-500 text-sm text-center py-4">Sem eventos próximos.</p>}
                        {upcomingEvents.map(evt => <CalendarEventItem key={evt.id} event={evt} />)}
                   </div>
                 )

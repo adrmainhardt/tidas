@@ -5,16 +5,17 @@ const CALENDAR_API_BASE = 'https://www.googleapis.com/calendar/v3/calendars';
 
 export const fetchCalendarEvents = async (accessToken: string): Promise<CalendarEvent[]> => {
   try {
-    // Define intervalo: Hoje até 30 dias à frente (Aumentado de 7 para 30 para garantir eventos próximos)
     const now = new Date();
-    // Zera o horário de hoje para pegar eventos que já começaram hoje
-    now.setHours(0, 0, 0, 0);
-    const timeMin = now.toISOString();
+    // CRITICAL FIX: Recuar 24h para garantir que problemas de fuso horário não ocultem eventos de "hoje" ou "amanhã cedo"
+    // A API as vezes ignora eventos que começam exatamente "agora" dependendo do fuso.
+    const past24h = new Date(now.getTime() - (24 * 60 * 60 * 1000));
+    const timeMin = past24h.toISOString();
     
     const nextMonth = new Date();
-    nextMonth.setDate(now.getDate() + 30);
+    nextMonth.setDate(now.getDate() + 45); // Aumentado para 45 dias
     const timeMax = nextMonth.toISOString();
 
+    // singleEvents=true expande eventos recorrentes
     const url = `${CALENDAR_API_BASE}/primary/events?timeMin=${timeMin}&timeMax=${timeMax}&singleEvents=true&orderBy=startTime&maxResults=50&_=${Date.now()}`;
 
     const response = await fetch(url, {
@@ -38,6 +39,7 @@ export const fetchCalendarEvents = async (accessToken: string): Promise<Calendar
 
     return data.items.map((item: any) => {
       // Parsing seguro de datas
+      // Se for dateTime, usa new Date. Se for date (dia inteiro), adiciona T00:00 para evitar inconsistência
       const start = item.start.dateTime ? new Date(item.start.dateTime) : new Date(item.start.date + 'T00:00:00');
       const end = item.end.dateTime ? new Date(item.end.dateTime) : new Date(item.end.date + 'T23:59:59');
       const isAllDay = !item.start.dateTime;

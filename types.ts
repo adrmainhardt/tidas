@@ -39,6 +39,17 @@ export interface EmailMessage {
   label: 'Primary' | 'Updates' | 'Promotions';
 }
 
+export interface SlackMessage {
+  id: string;
+  userId: string;
+  userName: string;
+  text: string;
+  timestamp: Date;
+  isRead: boolean;
+  channelId: string;
+  avatar?: string;
+}
+
 // Tipos do Google Calendar
 export interface CalendarEvent {
   id: string;

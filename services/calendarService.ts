@@ -1,4 +1,5 @@
 
+
 import { CalendarEvent } from "../types";
 
 const CALENDAR_API_BASE = 'https://www.googleapis.com/calendar/v3/calendars';
@@ -6,17 +7,20 @@ const CALENDAR_API_BASE = 'https://www.googleapis.com/calendar/v3/calendars';
 export const fetchCalendarEvents = async (accessToken: string): Promise<CalendarEvent[]> => {
   try {
     const now = new Date();
-    // CRITICAL FIX: Recuar 24h para garantir que problemas de fuso horário não ocultem eventos de "hoje" ou "amanhã cedo"
-    // A API as vezes ignora eventos que começam exatamente "agora" dependendo do fuso.
-    const past24h = new Date(now.getTime() - (24 * 60 * 60 * 1000));
-    const timeMin = past24h.toISOString();
+    
+    // FIX: Buscar eventos desde 7 dias atrás.
+    // Se buscarmos apenas 'past24h' ou 'now', a API pode filtrar eventos recorrentes 
+    // ou eventos que começaram de manhã cedo dependendo do fuso horário UTC x Local.
+    // É mais seguro baixar um pouco mais de dados e filtrar "Hoje" no frontend.
+    const past7Days = new Date(now.getTime() - (7 * 24 * 60 * 60 * 1000));
+    const timeMin = past7Days.toISOString();
     
     const nextMonth = new Date();
-    nextMonth.setDate(now.getDate() + 45); // Aumentado para 45 dias
+    nextMonth.setDate(now.getDate() + 45); 
     const timeMax = nextMonth.toISOString();
 
     // singleEvents=true expande eventos recorrentes
-    const url = `${CALENDAR_API_BASE}/primary/events?timeMin=${timeMin}&timeMax=${timeMax}&singleEvents=true&orderBy=startTime&maxResults=50&_=${Date.now()}`;
+    const url = `${CALENDAR_API_BASE}/primary/events?timeMin=${timeMin}&timeMax=${timeMax}&singleEvents=true&orderBy=startTime&maxResults=100&_=${Date.now()}`;
 
     const response = await fetch(url, {
       method: 'GET',

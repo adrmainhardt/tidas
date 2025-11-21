@@ -1,5 +1,7 @@
 {
   "name": "Tidas",
   "description": "Aplicativo de monitoramento de status de sites e recebimento de formulários para sites Wordpress/Elementor.",
-  "requestFramePermissions": []
+  "requestFramePermissions": [
+    "geolocation"
+  ]
 }

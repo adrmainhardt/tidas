@@ -1,4 +1,6 @@
 
+
+
 export enum SiteStatus {
   ONLINE = 'ONLINE',
   OFFLINE = 'OFFLINE',
@@ -39,17 +41,6 @@ export interface EmailMessage {
   label: 'Primary' | 'Updates' | 'Promotions';
 }
 
-export interface SlackMessage {
-  id: string;
-  userId: string;
-  userName: string;
-  text: string;
-  timestamp: Date;
-  isRead: boolean;
-  channelId: string;
-  avatar?: string;
-}
-
 // Tipos do Google Calendar
 export interface CalendarEvent {
   id: string;
@@ -83,6 +74,37 @@ export interface TrelloCard {
   listName?: string; // Preenchido pelo frontend
   url: string;
   labels: { id: string; name: string; color: string }[];
+}
+
+// Tipos do Slack
+export interface SlackMessage {
+  id: string;
+  userId: string;
+  userName: string;
+  avatar: string;
+  text: string;
+  timestamp: Date;
+  isRead: boolean;
+  channelId: string;
+}
+
+// Tipos de Clima
+export interface WeatherData {
+  current: {
+    temp: number;
+    code: number;
+  };
+  today: {
+    min: number;
+    max: number;
+    code: number;
+  };
+  tomorrow: {
+    min: number;
+    max: number;
+    code: number;
+  };
+  locationName?: string;
 }
 
 export enum ViewState {

@@ -36,9 +36,7 @@ export const analyzeForms = async (forms: FormSubmission[]): Promise<string> => 
     const response = await ai.models.generateContent({
       model: 'gemini-2.5-flash',
       contents: prompt,
-      config: {
-        thinkingConfig: { thinkingBudget: 0 } 
-      }
+      // Removido thinkingConfig para evitar erros de compatibilidade
     });
 
     return response.text || "Não foi possível gerar a análise no momento.";
@@ -68,14 +66,14 @@ export const generateDashboardInsight = async (context: {
         E-MAILS NÃO LIDOS (Top 5):
         ${context.emails.length > 0 ? context.emails.join('\n') : "Caixa de entrada limpa."}
 
-        AGENDA (Hoje):
-        ${context.events.length > 0 ? context.events.join('\n') : "Sem eventos hoje."}
+        AGENDA (Hoje e Próximos):
+        ${context.events.length > 0 ? context.events.join('\n') : "Agenda livre."}
 
         TRELLO:
         ${context.trello} cartões novos ou atualizados recentemente.
 
         INSTRUÇÃO:
-        Gere um texto curto (max 100 palavras) e direto.
+        Gere um texto curto (max 100 palavras) e direto em português do Brasil.
         1. Comece com um status geral (ex: "Tudo tranquilo" ou "Atenção necessária").
         2. Destaque apenas o que for urgente (site offline, lead quente, reunião próxima).
         3. Se tudo estiver calmo, dê um tom positivo.
@@ -85,12 +83,12 @@ export const generateDashboardInsight = async (context: {
         const response = await ai.models.generateContent({
             model: 'gemini-2.5-flash',
             contents: prompt,
-            config: { thinkingConfig: { thinkingBudget: 0 } }
+            // Configuração simplificada para garantir execução
         });
 
         return response.text || "Sem insights no momento.";
     } catch (error) {
-        console.warn("Erro insight:", error);
-        return "Não foi possível gerar o insight no momento.";
+        console.error("Erro detalhado insight:", error); // Log detalhado para debug
+        return "Não foi possível gerar o insight no momento. Verifique o console.";
     }
 }

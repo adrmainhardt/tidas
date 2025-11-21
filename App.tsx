@@ -1,5 +1,4 @@
 
-
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { DEFAULT_SITES, MOCK_FORMS, GOOGLE_CLIENT_ID } from './constants';
 import { SiteConfig, SiteStatus, ViewState, FormSubmission, EmailMessage, TrelloBoard, TrelloList, TrelloCard, CalendarEvent, WeatherData } from './types';
@@ -85,6 +84,12 @@ const isSameDay = (d1: Date, d2: Date) => {
   return d1.getDate() === d2.getDate() &&
          d1.getMonth() === d2.getMonth() &&
          d1.getFullYear() === d2.getFullYear();
+};
+
+const isTomorrow = (d1: Date, now: Date) => {
+  const tomorrow = new Date(now);
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  return isSameDay(d1, tomorrow);
 };
 
 // Cores para as listas do Trello (cíclico)
@@ -490,6 +495,7 @@ const App: React.FC = () => {
   const handleGenerateInsight = async () => {
     setIsLoadingInsight(true);
     setShowInsightModal(true);
+    setInsightResult(null); // Limpa resultado anterior
     
     const now = new Date();
     const todayEvents = events.filter(e => isSameDay(e.start, now));
@@ -742,12 +748,10 @@ const App: React.FC = () => {
     
     const now = new Date();
     
-    // Filtra eventos de hoje usando a função segura isSameDay
+    // Agrupamento de Eventos
     const todayEvents = events.filter(e => isSameDay(e.start, now));
-
-    const upcomingEvents = events.filter(e => {
-        return e.start > now && !isSameDay(e.start, now);
-    });
+    const tomorrowEvents = events.filter(e => isTomorrow(e.start, now));
+    const monthEvents = events.filter(e => !isSameDay(e.start, now) && !isTomorrow(e.start, now));
 
     return (
         <div className="pb-20 animate-fade-in flex flex-col h-full">
@@ -794,24 +798,40 @@ const App: React.FC = () => {
              {googleSubTab === 'calendar' && (
                 !googleToken ? renderGoogleLogin('Gmail e Agenda') : (
                   <div>
-                       {/* Eventos de Hoje */}
-                       {todayEvents.length > 0 ? (
-                         <div className="mb-6">
-                           <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3 px-1">Hoje</h3>
-                           {todayEvents.map(evt => <CalendarEventItem key={evt.id} event={evt} />)}
-                         </div>
-                       ) : (
+                       {events.length === 0 && !isLoadingGoogle && (
                            <div className="mb-6 p-4 bg-slate-800/50 rounded-xl text-center border border-slate-700/50">
-                               <p className="text-sm text-slate-400">Nenhum evento para hoje.</p>
+                               <p className="text-sm text-slate-400">Nenhum evento encontrado para este mês.</p>
                            </div>
                        )}
 
-                       {/* Próximos Eventos */}
-                       {upcomingEvents.length > 0 && (
-                         <>
-                            <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3 px-1 mt-4 border-t border-slate-700/50 pt-4">Próximos Dias</h3>
-                            {upcomingEvents.map(evt => <CalendarEventItem key={evt.id} event={evt} />)}
-                         </>
+                       {/* Eventos de Hoje */}
+                       {todayEvents.length > 0 && (
+                         <div className="mb-6">
+                           <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3 px-1 flex items-center gap-2">
+                              <div className="w-2 h-2 rounded-full bg-blue-500"></div> Hoje
+                           </h3>
+                           {todayEvents.map(evt => <CalendarEventItem key={evt.id} event={evt} />)}
+                         </div>
+                       )}
+
+                       {/* Eventos de Amanhã */}
+                       {tomorrowEvents.length > 0 && (
+                         <div className="mb-6">
+                           <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3 px-1 flex items-center gap-2">
+                              <div className="w-2 h-2 rounded-full bg-indigo-500"></div> Amanhã
+                           </h3>
+                           {tomorrowEvents.map(evt => <CalendarEventItem key={evt.id} event={evt} />)}
+                         </div>
+                       )}
+
+                       {/* Próximos Eventos (Mês) */}
+                       {monthEvents.length > 0 && (
+                         <div className="mb-6">
+                            <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3 px-1 mt-4 border-t border-slate-700/50 pt-4">
+                               Este Mês
+                            </h3>
+                            {monthEvents.map(evt => <CalendarEventItem key={evt.id} event={evt} />)}
+                         </div>
                        )}
                   </div>
                 )
@@ -913,7 +933,12 @@ const App: React.FC = () => {
                           </div>
                       ) : (
                           <div className="prose prose-invert prose-sm w-full">
-                             <div className="whitespace-pre-wrap text-slate-200 leading-relaxed">{insightResult}</div>
+                             {/* Se falhar, mostra mensagem amigável, senão o resultado */}
+                             {insightResult ? (
+                                <div className="whitespace-pre-wrap text-slate-200 leading-relaxed">{insightResult}</div>
+                             ) : (
+                                <p className="text-rose-400 text-center">Ocorreu um erro ao gerar o insight. Tente novamente.</p>
+                             )}
                           </div>
                       )}
                   </div>

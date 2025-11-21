@@ -76,8 +76,7 @@ export interface TrelloCard {
 
 export enum ViewState {
   DASHBOARD = 'DASHBOARD',
-  SITES = 'SITES',
-  FORMS = 'FORMS',
+  WEBSITES = 'WEBSITES', // Unificado (Sites + Forms)
   GOOGLE = 'GOOGLE',
   TRELLO = 'TRELLO'
 }

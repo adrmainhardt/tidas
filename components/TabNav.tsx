@@ -1,7 +1,7 @@
 
 import React from 'react';
 import { ViewState } from '../types';
-import { LayoutDashboard, Globe, MessageSquareText, Briefcase, Trello } from 'lucide-react';
+import { LayoutDashboard, Globe, Briefcase, Trello } from 'lucide-react';
 
 interface TabNavProps {
   currentView: ViewState;
@@ -17,8 +17,7 @@ interface TabNavProps {
 const TabNav: React.FC<TabNavProps> = ({ currentView, onChangeView, badges }) => {
   const navItems = [
     { id: ViewState.DASHBOARD, label: 'Início', icon: LayoutDashboard },
-    { id: ViewState.SITES, label: 'Sites', icon: Globe, badge: badges.sites },
-    { id: ViewState.FORMS, label: 'Forms', icon: MessageSquareText, badgeCount: badges.forms },
+    { id: ViewState.WEBSITES, label: 'Sites', icon: Globe, badgeCount: badges.forms, alert: badges.sites },
     { id: ViewState.GOOGLE, label: 'Google', icon: Briefcase, badgeCount: badges.google },
     { id: ViewState.TRELLO, label: 'Trello', icon: Trello, badgeCount: badges.trello },
   ];
@@ -40,8 +39,8 @@ const TabNav: React.FC<TabNavProps> = ({ currentView, onChangeView, badges }) =>
               <div className="relative">
                 <Icon className={`w-5 h-5 ${isActive ? 'fill-current/10' : ''}`} />
                 
-                {/* Badge para Sites (Bolinha simples se tiver erro) */}
-                {item.id === ViewState.SITES && item.badge && (
+                {/* Alert para Sites Offline */}
+                {item.alert && (
                    <span className="absolute -top-1 -right-1 w-3 h-3 bg-rose-500 rounded-full border-2 border-slate-900 animate-pulse"></span>
                 )}
 

@@ -1,7 +1,7 @@
 
 import React from 'react';
 import { SiteConfig, SiteStatus } from '../types';
-import { Globe, CheckCircle2, XCircle, AlertCircle, Clock, Zap, BarChart3 } from 'lucide-react';
+import { Globe, CheckCircle2, XCircle, AlertCircle, Clock, Zap, BarChart3, Users } from 'lucide-react';
 
 interface MonitorCardProps {
   site: SiteConfig;
@@ -29,42 +29,72 @@ const MonitorCard: React.FC<MonitorCardProps> = ({ site, onRefresh, minimal = fa
   };
 
   const getResponseTimeColor = (ms: number) => {
-    if (ms < 200) return 'text-emerald-400 border-emerald-400/20 bg-emerald-400/10';
-    if (ms < 500) return 'text-amber-400 border-amber-400/20 bg-amber-400/10';
-    return 'text-rose-400 border-rose-400/20 bg-rose-400/10';
+    if (ms < 200) return 'text-emerald-400';
+    if (ms < 500) return 'text-amber-400';
+    return 'text-rose-400';
   };
 
   return (
-    <div className="bg-slate-800 rounded-xl p-4 shadow-lg border border-slate-700 mb-4 flex flex-col gap-3">
+    <div className={`bg-slate-800 rounded-xl p-4 shadow-lg border border-slate-700 mb-3 flex flex-col ${minimal ? 'gap-1' : 'gap-3'}`}>
       <div className="flex justify-between items-start">
         <div className="flex items-center gap-3">
           <div className={`p-2 rounded-full bg-slate-700/50 ${getStatusColor(site.status)}`}>
             <Globe className="w-6 h-6" />
           </div>
           <div>
-            <h3 className="font-semibold text-slate-100">{site.name}</h3>
-            <a href={site.url} target="_blank" rel="noopener noreferrer" className="text-xs text-slate-400 hover:text-blue-400 transition-colors">
-              {site.url.replace('https://', '')}
-            </a>
+            <h3 className="font-semibold text-slate-100 leading-tight">{site.name}</h3>
+            
+            {/* Modo Minimal: Métricas na mesma linha, sem URL */}
+            {minimal ? (
+               <div className="flex items-center gap-2 text-[11px] text-slate-400 mt-1">
+                   {site.status === SiteStatus.ONLINE && (
+                     <>
+                        <span className="flex items-center gap-1">
+                            <Users className="w-3 h-3 opacity-70" /> 
+                            {site.onlineUsers || 0}
+                        </span>
+                        <span className="opacity-30">|</span>
+                        <span className={`flex items-center gap-1 ${getResponseTimeColor(site.responseTime || 0)}`}>
+                            <Zap className="w-3 h-3" /> 
+                            {site.responseTime}ms
+                        </span>
+                     </>
+                   )}
+                   {site.status !== SiteStatus.ONLINE && (
+                     <span className="text-xs opacity-70">{site.status === SiteStatus.CHECKING ? 'Verificando...' : site.status}</span>
+                   )}
+               </div>
+            ) : (
+                <a href={site.url} target="_blank" rel="noopener noreferrer" className="text-xs text-slate-400 hover:text-blue-400 transition-colors block mt-0.5">
+                {site.url.replace('https://', '')}
+                </a>
+            )}
           </div>
         </div>
+        
         <div className="flex flex-col items-end">
            {getStatusIcon(site.status)}
-           <span className={`text-xs font-medium mt-1 ${getStatusColor(site.status)}`}>
-             {site.status === SiteStatus.CHECKING ? 'Verificando...' : site.status}
-           </span>
            
-           {site.status === SiteStatus.ONLINE && site.responseTime !== undefined && (
-             <div className={`flex items-center gap-1 mt-2 text-[10px] font-medium px-1.5 py-0.5 rounded border ${getResponseTimeColor(site.responseTime)}`}>
-                <Zap className="w-3 h-3" />
-                <span>{site.responseTime}ms</span>
-             </div>
+           {/* Modo Completo: Status em texto e latência destacada */}
+           {!minimal && (
+             <>
+               <span className={`text-xs font-medium mt-1 ${getStatusColor(site.status)}`}>
+                 {site.status === SiteStatus.CHECKING ? 'Verificando...' : site.status}
+               </span>
+               
+               {site.status === SiteStatus.ONLINE && site.responseTime !== undefined && (
+                 <div className={`flex items-center gap-1 mt-2 text-[10px] font-medium px-1.5 py-0.5 rounded border bg-opacity-10 ${getResponseTimeColor(site.responseTime).replace('text-', 'border-').replace('text-', 'bg-')} ${getResponseTimeColor(site.responseTime)}`}>
+                    <Zap className="w-3 h-3" />
+                    <span>{site.responseTime}ms</span>
+                 </div>
+               )}
+             </>
            )}
         </div>
       </div>
 
-      {/* Linha de Estatísticas Extras (Visitantes Mês) */}
-      {site.status === SiteStatus.ONLINE && (
+      {/* Modo Completo: Estatísticas Extras */}
+      {!minimal && site.status === SiteStatus.ONLINE && (
         <div className="flex items-center gap-4 py-2 px-3 bg-slate-900/50 rounded-lg border border-slate-700/50">
             <div className="flex items-center gap-2 text-slate-300">
                 <BarChart3 className="w-4 h-4 text-purple-400" />

@@ -10,14 +10,13 @@ import FormDetailsModal from './components/FormDetailsModal';
 import EmailDetailsModal from './components/EmailDetailsModal';
 import TrelloCardItem from './components/TrelloCardItem';
 import CalendarEventItem from './components/CalendarEventItem';
-import SlackConfigModal from './components/SlackConfigModal';
 import { fetchFormsFromWP, fetchSiteStats } from './services/wpService';
 import { fetchGmailMessages } from './services/gmailService';
 import { fetchCalendarEvents } from './services/calendarService';
 import { fetchBoards, fetchLists, fetchCardsFromList } from './services/trelloService';
 import { sendSlackNotification } from './services/slackService';
 import { generateDashboardInsight } from './services/geminiService';
-import { Activity, RefreshCw, AlertTriangle, WifiOff, Trash2, BarChart3, Mail, LogIn, LogOut, Copy, Info, Check, Trello, Settings, CheckSquare, ExternalLink, HelpCircle, Bell, CalendarDays, Calendar, Slack, Sparkles, X } from 'lucide-react';
+import { Activity, RefreshCw, AlertTriangle, WifiOff, Trash2, BarChart3, Mail, LogIn, LogOut, Copy, Info, Check, Trello, Settings, CheckSquare, ExternalLink, HelpCircle, Bell, CalendarDays, Calendar, Slack, Sparkles, X, Globe, MessageSquareText, Save, Send } from 'lucide-react';
 
 // Declaração global para o Google Identity Services
 declare global {
@@ -93,7 +92,6 @@ const App: React.FC = () => {
   const [notifPermission, setNotifPermission] = useState<NotificationPermission>('default');
 
   // Google Services States (Gmail + Calendar)
-  // Usamos um único token para ambos os serviços (googleToken)
   const [googleToken, setGoogleToken] = usePersistedState<string | null>('monitor_google_token', null);
   const [emails, setEmails] = useState<EmailMessage[]>([]);
   const [events, setEvents] = useState<CalendarEvent[]>([]);
@@ -104,8 +102,13 @@ const App: React.FC = () => {
   const [authErrorType, setAuthErrorType] = useState<string | null>(null);
   const [apiNotEnabled, setApiNotEnabled] = useState<boolean>(false);
   const [selectedEmailId, setSelectedEmailId] = useState<string | null>(null);
-  const [googleSubTab, setGoogleSubTab] = useState<'mail' | 'calendar'>('mail');
+  
+  // Google SubTabs (Mail, Calendar, Slack)
+  const [googleSubTab, setGoogleSubTab] = useState<'mail' | 'calendar' | 'slack'>('mail');
   const tokenClient = useRef<any>(null);
+
+  // Website Hub States (Status + Forms) - Slack moved to Google Area
+  const [websiteSubTab, setWebsiteSubTab] = useState<'status' | 'forms'>('status');
 
   // Insight AI States
   const [insightResult, setInsightResult] = useState<string | null>(null);
@@ -128,7 +131,7 @@ const App: React.FC = () => {
 
   // Slack State
   const [slackWebhook, setSlackWebhook] = usePersistedState<string>('monitor_slack_webhook', '');
-  const [showSlackConfig, setShowSlackConfig] = useState(false);
+  const [slackTestStatus, setSlackTestStatus] = useState<'idle' | 'sending' | 'success' | 'error'>('idle');
 
   // Persistência de estados de leitura e exclusão
   const [readFormIds, setReadFormIds] = usePersistedState<string[]>('monitor_read_forms_v2', []);
@@ -167,7 +170,7 @@ const App: React.FC = () => {
             client_id: GOOGLE_CLIENT_ID,
             // Scopes para Gmail e Calendar juntos
             scope: 'https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/calendar.readonly',
-            prompt: 'consent', // Força o consentimento na primeira vez
+            prompt: 'consent', 
             callback: (response: any) => {
               if (response.access_token) {
                 setGoogleToken(response.access_token);
@@ -372,8 +375,6 @@ const App: React.FC = () => {
       if (error.message === 'API_NOT_ENABLED') {
         setApiNotEnabled(true);
       } else if (error.message === 'AUTH_EXPIRED') {
-        // NÃO limpa o token imediatamente para evitar UX ruim
-        // Apenas marca erro de autenticação para o usuário reconectar manualmente
         console.warn("Token expirado");
       }
     } finally {
@@ -481,6 +482,15 @@ const App: React.FC = () => {
     setIsLoadingInsight(false);
   };
 
+  // Slack Test Handler
+  const handleTestSlack = async () => {
+    if (!slackWebhook) return;
+    setSlackTestStatus('sending');
+    const success = await sendSlackNotification(slackWebhook, "🔔 *Teste Tidas*: Integração funcionando corretamente!");
+    setSlackTestStatus(success ? 'success' : 'error');
+    setTimeout(() => setSlackTestStatus('idle'), 3000);
+  };
+
   // Init Loop
   useEffect(() => {
     let isMounted = true;
@@ -513,7 +523,7 @@ const App: React.FC = () => {
     }, 10000);
 
     return () => { isMounted = false; clearInterval(intervalId); };
-  }, [googleToken]); // Re-run se token mudar
+  }, [googleToken]); 
 
   // Handlers
   const handleMarkAsRead = (id: string) => {
@@ -541,7 +551,7 @@ const App: React.FC = () => {
     });
   };
 
-  // Render Views
+  // Views Renderers
   const renderDashboard = () => {
     return (
       <div className="space-y-6 animate-fade-in">
@@ -575,9 +585,13 @@ const App: React.FC = () => {
 
         {/* Grid de Serviços */}
         <div className="grid grid-cols-2 gap-4">
-          <div onClick={() => setCurrentView(ViewState.FORMS)} className="bg-slate-800 p-4 rounded-2xl border border-slate-700 shadow-sm cursor-pointer active:scale-95 transition-all">
-            <div className="flex items-center gap-2 mb-2 text-brand-400"><AlertTriangle className="w-4 h-4" /><span className="text-xs font-semibold">ALERTAS</span></div>
-            <div className="text-2xl font-bold text-slate-100">{forms.filter(f => !f.isRead).length}</div>
+          {/* Forms & Sites Combined Entry */}
+          <div onClick={() => setCurrentView(ViewState.WEBSITES)} className="bg-slate-800 p-4 rounded-2xl border border-slate-700 shadow-sm cursor-pointer active:scale-95 transition-all">
+            <div className="flex items-center gap-2 mb-2 text-brand-400"><Globe className="w-4 h-4" /><span className="text-xs font-semibold">SITES & FORMS</span></div>
+            <div className="flex justify-between items-end">
+               <div className="text-2xl font-bold text-slate-100">{forms.filter(f => !f.isRead).length}</div>
+               {sites.some(s => s.status === SiteStatus.OFFLINE) && <AlertTriangle className="w-5 h-5 text-rose-500 animate-pulse" />}
+            </div>
           </div>
           <div onClick={() => setCurrentView(ViewState.TRELLO)} className="bg-slate-800 p-4 rounded-2xl border border-slate-700 shadow-sm cursor-pointer active:scale-95 transition-all">
              <div className="flex items-center gap-2 mb-2 text-blue-400"><Trello className="w-4 h-4" /><span className="text-xs font-semibold">TRELLO</span></div>
@@ -611,14 +625,72 @@ const App: React.FC = () => {
     );
   };
 
+  const renderWebsiteHub = () => {
+    const unreadForms = forms.filter(f => !f.isRead).length;
+    const offlineSites = sites.filter(s => s.status === SiteStatus.OFFLINE).length;
+
+    return (
+        <div className="pb-20 animate-fade-in flex flex-col h-full">
+             {/* Header with Toggle */}
+             <div className="flex flex-col mb-4 px-1">
+                 <div className="flex justify-between items-center mb-4">
+                    <h2 className="text-xl font-bold text-slate-100">Meus Sites</h2>
+                    <div className="flex gap-2">
+                         {websiteSubTab === 'forms' && (
+                             <>
+                               {forms.some(f => f.isRead) && <button onClick={handleClearRead} className="p-2 text-slate-500 hover:text-rose-400"><Trash2 className="w-4 h-4" /></button>}
+                               <button onClick={syncForms} className={`p-2 bg-brand-secondary/20 text-brand-secondary rounded-full ${isLoadingForms ? 'animate-spin' : ''}`}><RefreshCw className="w-4 h-4" /></button>
+                             </>
+                         )}
+                         {websiteSubTab === 'status' && (
+                              <button onClick={checkAllSites} className="p-2 bg-brand-secondary/20 text-brand-secondary rounded-full hover:bg-brand-secondary/30"><RefreshCw className="w-4 h-4" /></button>
+                         )}
+                    </div>
+                 </div>
+                 
+                 <div className="bg-slate-800 p-1 rounded-xl flex gap-1">
+                     <button 
+                        onClick={() => setWebsiteSubTab('status')} 
+                        className={`flex-1 py-2 rounded-lg text-xs font-bold flex justify-center items-center gap-2 transition-colors ${websiteSubTab === 'status' ? 'bg-slate-700 text-white shadow-sm' : 'text-slate-400 hover:text-slate-300'}`}
+                     >
+                        <Globe className="w-3.5 h-3.5" /> Status
+                        {offlineSites > 0 && <span className="bg-rose-500 text-white text-[9px] px-1.5 py-0.5 rounded-full animate-pulse">{offlineSites}</span>}
+                     </button>
+                     <button 
+                        onClick={() => setWebsiteSubTab('forms')} 
+                        className={`flex-1 py-2 rounded-lg text-xs font-bold flex justify-center items-center gap-2 transition-colors ${websiteSubTab === 'forms' ? 'bg-slate-700 text-white shadow-sm' : 'text-slate-400 hover:text-slate-300'}`}
+                     >
+                        <MessageSquareText className="w-3.5 h-3.5" /> Formulários
+                        {unreadForms > 0 && <span className="bg-blue-500 text-white text-[9px] px-1.5 py-0.5 rounded-full">{unreadForms}</span>}
+                     </button>
+                 </div>
+             </div>
+
+             {/* Content Area */}
+             {websiteSubTab === 'status' && (
+                <div>
+                    {sites.map(site => <MonitorCard key={site.id} site={site} onRefresh={handleRefreshSite} />)}
+                </div>
+             )}
+
+             {websiteSubTab === 'forms' && (
+                <div className="overflow-x-hidden">
+                     {forms.length === 0 && <div className="text-center py-10 text-slate-500"><WifiOff className="w-10 h-10 mx-auto mb-3 opacity-50" /><p>Nenhuma mensagem.</p></div>}
+                     {forms.map(f => <InboxItem key={f.id} form={f} siteName={sites.find(s => s.id === f.siteId)?.name || 'Site'} onSelect={() => {setSelectedFormId(f.id); handleMarkAsRead(f.id);}} onDismiss={() => handleDismissForm(f.id)} />)}
+                </div>
+             )}
+        </div>
+    );
+  };
+
   const renderGoogleLogin = (serviceName: string) => (
-    <div className="flex flex-col items-center justify-center h-[70vh] px-6 text-center animate-fade-in">
+    <div className="flex flex-col items-center justify-center flex-1 px-6 text-center animate-fade-in py-10">
       <div className="w-20 h-20 bg-slate-800 rounded-full flex items-center justify-center mb-6 shadow-xl border border-slate-700">
         <LogIn className="w-10 h-10 text-blue-500" />
       </div>
       <h2 className="text-2xl font-bold text-slate-100 mb-2">Conectar Google</h2>
       <p className="text-slate-400 mb-8 max-w-xs text-sm">
-        Faça login para acessar seu {serviceName} e Agenda.
+        Faça login para acessar seu {serviceName}.
       </p>
 
       {apiNotEnabled && (
@@ -639,24 +711,35 @@ const App: React.FC = () => {
   );
 
   const renderGoogleHub = () => {
-    if (!googleToken) return renderGoogleLogin('Gmail e Agenda');
-
     const unreadEmails = emails.filter(e => e.isUnread).length;
+    
     const todayEvents = events.filter(e => {
         const now = new Date();
-        return e.start.getDate() === now.getDate() && e.start.getMonth() === now.getMonth();
-    }).length;
+        return e.start.getDate() === now.getDate() && 
+               e.start.getMonth() === now.getMonth() && 
+               e.start.getFullYear() === now.getFullYear();
+    });
+
+    const upcomingEvents = events.filter(e => {
+        const now = new Date();
+        now.setHours(0,0,0,0);
+        const eventDate = new Date(e.start);
+        eventDate.setHours(0,0,0,0);
+        return eventDate > now;
+    });
 
     return (
         <div className="pb-20 animate-fade-in flex flex-col h-full">
              {/* Header with Toggle */}
              <div className="flex flex-col mb-4 px-1">
                  <div className="flex justify-between items-center mb-4">
-                    <h2 className="text-xl font-bold text-slate-100">Google Workspace</h2>
-                    <div className="flex gap-2">
-                        <button onClick={handleDisconnectGoogle} className="p-2 text-slate-500 hover:text-rose-400"><LogOut className="w-5 h-5" /></button>
-                        <button onClick={() => fetchGoogleData(googleToken)} className={`p-2 bg-blue-500/20 text-blue-400 rounded-full ${isLoadingGoogle ? 'animate-spin' : ''}`}><RefreshCw className="w-4 h-4" /></button>
-                    </div>
+                    <h2 className="text-xl font-bold text-slate-100">Workspace</h2>
+                    {googleToken && (
+                      <div className="flex gap-2">
+                          <button onClick={handleDisconnectGoogle} className="p-2 text-slate-500 hover:text-rose-400"><LogOut className="w-5 h-5" /></button>
+                          <button onClick={() => fetchGoogleData(googleToken)} className={`p-2 bg-blue-500/20 text-blue-400 rounded-full ${isLoadingGoogle ? 'animate-spin' : ''}`}><RefreshCw className="w-4 h-4" /></button>
+                      </div>
+                    )}
                  </div>
                  
                  <div className="bg-slate-800 p-1 rounded-xl flex gap-1">
@@ -672,44 +755,98 @@ const App: React.FC = () => {
                         className={`flex-1 py-2 rounded-lg text-xs font-bold flex justify-center items-center gap-2 transition-colors ${googleSubTab === 'calendar' ? 'bg-slate-700 text-white shadow-sm' : 'text-slate-400 hover:text-slate-300'}`}
                      >
                         <CalendarDays className="w-3.5 h-3.5" /> Agenda
-                        {todayEvents > 0 && <span className="bg-blue-500 text-white text-[9px] px-1.5 py-0.5 rounded-full">{todayEvents}</span>}
+                        {todayEvents.length > 0 && <span className="bg-blue-500 text-white text-[9px] px-1.5 py-0.5 rounded-full">{todayEvents.length}</span>}
+                     </button>
+                     <button 
+                        onClick={() => setGoogleSubTab('slack')} 
+                        className={`flex-1 py-2 rounded-lg text-xs font-bold flex justify-center items-center gap-2 transition-colors ${googleSubTab === 'slack' ? 'bg-slate-700 text-white shadow-sm' : 'text-slate-400 hover:text-slate-300'}`}
+                     >
+                        <Slack className="w-3.5 h-3.5" /> Slack
                      </button>
                  </div>
              </div>
 
              {/* Content Area */}
+             {googleSubTab === 'slack' && (
+               <div className="px-2 animate-fade-in">
+                  <div className="bg-slate-800 rounded-xl p-5 border border-slate-700">
+                      <div className="flex items-center gap-3 mb-4">
+                         <div className="p-2 bg-emerald-500/10 rounded-lg"><Slack className="w-6 h-6 text-emerald-400" /></div>
+                         <div>
+                             <h3 className="font-bold text-slate-100">Configuração Slack</h3>
+                             <p className="text-xs text-slate-400">Receba alertas no seu canal</p>
+                         </div>
+                      </div>
+                      
+                      <div className="space-y-4">
+                          <div>
+                              <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Webhook URL</label>
+                              <input 
+                                type="text" 
+                                value={slackWebhook}
+                                onChange={(e) => setSlackWebhook(e.target.value)}
+                                placeholder="https://hooks.slack.com/services/..."
+                                className="w-full bg-slate-900 border border-slate-700 rounded-lg p-3 text-sm text-slate-200 focus:ring-2 focus:ring-emerald-500 outline-none"
+                              />
+                          </div>
+                          
+                          <div className="flex items-center justify-between pt-2">
+                              <a href="https://api.slack.com/messaging/webhooks" target="_blank" className="text-xs text-blue-400 flex items-center gap-1 hover:text-blue-300"><ExternalLink className="w-3 h-3" /> Ajuda</a>
+                              <button 
+                                 onClick={handleTestSlack}
+                                 disabled={!slackWebhook || slackTestStatus === 'sending'}
+                                 className={`px-4 py-2 rounded-lg text-xs font-bold flex items-center gap-2 transition-all ${
+                                    slackTestStatus === 'success' ? 'bg-emerald-500 text-white' :
+                                    slackTestStatus === 'error' ? 'bg-rose-500 text-white' :
+                                    'bg-slate-700 text-slate-200 hover:bg-slate-600'
+                                 }`}
+                              >
+                                  {slackTestStatus === 'sending' ? <RefreshCw className="w-3 h-3 animate-spin" /> : 
+                                   slackTestStatus === 'success' ? <Check className="w-3 h-3" /> :
+                                   slackTestStatus === 'error' ? <X className="w-3 h-3" /> :
+                                   <Send className="w-3 h-3" />
+                                  }
+                                  {slackTestStatus === 'sending' ? 'Enviando...' : 
+                                   slackTestStatus === 'success' ? 'Enviado!' : 
+                                   slackTestStatus === 'error' ? 'Erro' : 
+                                   'Testar Envio'}
+                              </button>
+                          </div>
+                      </div>
+                  </div>
+               </div>
+             )}
+
              {googleSubTab === 'mail' && (
-                <div>
-                    {emails.length === 0 && !isLoadingGoogle && <div className="text-center py-10 text-slate-500"><Check className="w-8 h-8 text-emerald-500/50 mx-auto mb-2"/><p>Caixa limpa!</p></div>}
-                    {emails.map(email => <EmailItem key={email.id} email={email} onSelect={() => {setSelectedEmailId(email.id); setEmails(prev => prev.map(e => e.id === email.id ? { ...e, isUnread: false } : e));}} onDismiss={() => setEmails(prev => prev.filter(e => e.id !== email.id))} />)}
-                </div>
+                !googleToken ? renderGoogleLogin('Gmail e Agenda') : (
+                  <div>
+                      {emails.length === 0 && !isLoadingGoogle && <div className="text-center py-10 text-slate-500"><Check className="w-8 h-8 text-emerald-500/50 mx-auto mb-2"/><p>Caixa limpa!</p></div>}
+                      {emails.map(email => <EmailItem key={email.id} email={email} onSelect={() => {setSelectedEmailId(email.id); setEmails(prev => prev.map(e => e.id === email.id ? { ...e, isUnread: false } : e));}} onDismiss={() => setEmails(prev => prev.filter(e => e.id !== email.id))} />)}
+                  </div>
+                )
              )}
 
              {googleSubTab === 'calendar' && (
-                <div>
-                     {events.filter(e => {
-                        const now = new Date();
-                        return e.start.getDate() === now.getDate() && e.start.getMonth() === now.getMonth();
-                     }).length > 0 && (
-                       <div className="mb-6">
-                         <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3 px-1">Hoje</h3>
-                         {events.filter(e => {
-                            const now = new Date();
-                            return e.start.getDate() === now.getDate() && e.start.getMonth() === now.getMonth();
-                         }).map(evt => <CalendarEventItem key={evt.id} event={evt} />)}
-                       </div>
-                     )}
+                !googleToken ? renderGoogleLogin('Gmail e Agenda') : (
+                  <div>
+                       {/* Eventos de Hoje */}
+                       {todayEvents.length > 0 ? (
+                         <div className="mb-6">
+                           <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3 px-1">Hoje</h3>
+                           {todayEvents.map(evt => <CalendarEventItem key={evt.id} event={evt} />)}
+                         </div>
+                       ) : (
+                           <div className="mb-6 p-4 bg-slate-800/50 rounded-xl text-center border border-slate-700/50">
+                               <p className="text-sm text-slate-400">Nenhum evento para hoje.</p>
+                           </div>
+                       )}
 
-                     <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3 px-1">Próximos Dias</h3>
-                     {events.filter(e => {
-                        const now = new Date();
-                        return e.start > now || (e.start.getDate() !== now.getDate() && e.start > now);
-                     }).length === 0 && <p className="text-slate-500 text-sm text-center py-4">Agenda livre nos próximos dias.</p>}
-                     {events.filter(e => {
-                        const now = new Date();
-                        return e.start > now || (e.start.getDate() !== now.getDate() && e.start > now);
-                     }).map(evt => <CalendarEventItem key={evt.id} event={evt} />)}
-                </div>
+                       {/* Próximos Eventos */}
+                       <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3 px-1 mt-4 border-t border-slate-700/50 pt-4">Próximos Dias</h3>
+                       {upcomingEvents.length === 0 && <p className="text-slate-500 text-sm text-center py-4">Agenda livre nos próximos 30 dias.</p>}
+                       {upcomingEvents.map(evt => <CalendarEventItem key={evt.id} event={evt} />)}
+                  </div>
+                )
              )}
         </div>
     );
@@ -719,29 +856,7 @@ const App: React.FC = () => {
     <div className="min-h-screen bg-brand-900 text-slate-200 font-sans selection:bg-brand-secondary/30">
       <main className="max-w-md mx-auto min-h-screen relative pt-safe-area px-4 pb-safe-area mt-4">
         {currentView === ViewState.DASHBOARD && renderDashboard()}
-        {currentView === ViewState.SITES && (
-            <div className="pb-20 animate-fade-in">
-                <div className="flex justify-between items-center mb-6 px-1">
-                    <h2 className="text-xl font-bold text-slate-100">Meus Sites</h2>
-                    <button onClick={checkAllSites} className="p-2 bg-brand-secondary/20 text-brand-secondary rounded-full hover:bg-brand-secondary/30"><RefreshCw className="w-5 h-5" /></button>
-                </div>
-                {sites.map(site => <MonitorCard key={site.id} site={site} onRefresh={handleRefreshSite} />)}
-            </div>
-        )}
-        {currentView === ViewState.FORMS && (
-            <div className="pb-20 animate-fade-in overflow-x-hidden">
-                <div className="flex justify-between items-center mb-6 px-1">
-                    <div className="flex items-center gap-2"><h2 className="text-xl font-bold text-slate-100">Mensagens</h2><span className="text-xs bg-slate-800 text-slate-400 px-2 py-1 rounded-full">{forms.length}</span></div>
-                    <div className="flex gap-2">
-                        <button onClick={() => setShowSlackConfig(true)} className={`p-2 ${slackWebhook ? 'text-emerald-400' : 'text-slate-500'} hover:text-emerald-300`}><Slack className="w-4 h-4" /></button>
-                        {forms.some(f => f.isRead) && <button onClick={handleClearRead} className="p-2 text-slate-500 hover:text-rose-400"><Trash2 className="w-4 h-4" /></button>}
-                        <button onClick={syncForms} className={`p-2 bg-brand-secondary/20 text-brand-secondary rounded-full ${isLoadingForms ? 'animate-spin' : ''}`}><RefreshCw className="w-4 h-4" /></button>
-                    </div>
-                </div>
-                {forms.length === 0 && <div className="text-center py-10 text-slate-500"><WifiOff className="w-10 h-10 mx-auto mb-3 opacity-50" /><p>Nenhuma mensagem.</p></div>}
-                {forms.map(f => <InboxItem key={f.id} form={f} siteName={sites.find(s => s.id === f.siteId)?.name || 'Site'} onSelect={() => {setSelectedFormId(f.id); handleMarkAsRead(f.id);}} onDismiss={() => handleDismissForm(f.id)} />)}
-            </div>
-        )}
+        {currentView === ViewState.WEBSITES && renderWebsiteHub()}
         {currentView === ViewState.TRELLO && (
             <>
               {!trelloKey || !trelloToken ? (
@@ -797,7 +912,10 @@ const App: React.FC = () => {
         badges={{
           sites: sites.some(s => s.status === SiteStatus.OFFLINE),
           forms: forms.filter(f => !f.isRead).length,
-          google: emails.filter(e => e.isUnread).length + events.filter(e => e.start.getDate() === new Date().getDate()).length,
+          google: emails.filter(e => e.isUnread).length + events.filter(e => {
+              const now = new Date();
+              return e.start.getDate() === now.getDate() && e.start.getMonth() === now.getMonth();
+          }).length,
           trello: trelloBadgeCount
         }}
       />
@@ -808,14 +926,6 @@ const App: React.FC = () => {
 
       {selectedEmailId && (
         <EmailDetailsModal email={emails.find(e => e.id === selectedEmailId)!} onClose={() => setSelectedEmailId(null)} />
-      )}
-
-      {showSlackConfig && (
-        <SlackConfigModal 
-          currentUrl={slackWebhook} 
-          onSave={setSlackWebhook} 
-          onClose={() => setShowSlackConfig(false)} 
-        />
       )}
 
       {/* MODAL DE INSIGHT AI */}

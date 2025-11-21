@@ -1,6 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
-import { X, Slack, ExternalLink, Save } from 'lucide-react';
+import { X, Slack, ExternalLink, Save, Send } from 'lucide-react';
+import { sendSlackNotification } from '../services/slackService';
 
 interface SlackConfigModalProps {
   currentUrl: string;
@@ -10,6 +11,7 @@ interface SlackConfigModalProps {
 
 const SlackConfigModal: React.FC<SlackConfigModalProps> = ({ currentUrl, onSave, onClose }) => {
   const [url, setUrl] = useState(currentUrl);
+  const [isTesting, setIsTesting] = useState(false);
 
   useEffect(() => {
     const handleEsc = (e: KeyboardEvent) => {
@@ -22,6 +24,13 @@ const SlackConfigModal: React.FC<SlackConfigModalProps> = ({ currentUrl, onSave,
   const handleSave = () => {
     onSave(url);
     onClose();
+  };
+
+  const handleTest = async () => {
+    if (!url) return;
+    setIsTesting(true);
+    await sendSlackNotification(url, "🔔 *Teste Tidas*: Integração funcionando corretamente!");
+    setTimeout(() => setIsTesting(false), 1000);
   };
 
   return (
@@ -42,7 +51,7 @@ const SlackConfigModal: React.FC<SlackConfigModalProps> = ({ currentUrl, onSave,
 
         <div className="p-5 space-y-4">
           <p className="text-sm text-slate-400">
-            Receba notificações de novas mensagens diretamente em um canal do seu Slack.
+            Receba notificações de novas mensagens e status de site diretamente em um canal.
           </p>
 
           <div>
@@ -55,15 +64,25 @@ const SlackConfigModal: React.FC<SlackConfigModalProps> = ({ currentUrl, onSave,
               className="w-full bg-slate-900 border border-slate-700 rounded-lg p-3 text-sm text-slate-200 focus:ring-2 focus:ring-emerald-500 outline-none"
             />
           </div>
-
-          <a 
-            href="https://api.slack.com/messaging/webhooks" 
-            target="_blank" 
-            rel="noopener noreferrer"
-            className="flex items-center gap-1 text-xs text-blue-400 hover:text-blue-300"
-          >
-            <ExternalLink className="w-3 h-3" /> Como criar um Incoming Webhook
-          </a>
+            
+          <div className="flex justify-between items-center">
+              <a 
+                href="https://api.slack.com/messaging/webhooks" 
+                target="_blank" 
+                rel="noopener noreferrer"
+                className="flex items-center gap-1 text-xs text-blue-400 hover:text-blue-300"
+              >
+                <ExternalLink className="w-3 h-3" /> Ajuda
+              </a>
+              
+              <button 
+                onClick={handleTest}
+                disabled={!url || isTesting}
+                className="text-xs bg-slate-700 hover:bg-slate-600 text-slate-200 px-3 py-1.5 rounded flex items-center gap-1 transition-colors disabled:opacity-50"
+              >
+                 <Send className="w-3 h-3" /> {isTesting ? 'Enviando...' : 'Testar Envio'}
+              </button>
+          </div>
         </div>
 
         <div className="p-4 border-t border-slate-700 bg-slate-800/50 flex justify-end">

@@ -5,15 +5,17 @@ const CALENDAR_API_BASE = 'https://www.googleapis.com/calendar/v3/calendars';
 
 export const fetchCalendarEvents = async (accessToken: string): Promise<CalendarEvent[]> => {
   try {
-    // Define intervalo: Hoje até 7 dias à frente
+    // Define intervalo: Hoje até 30 dias à frente (Aumentado de 7 para 30 para garantir eventos próximos)
     const now = new Date();
+    // Zera o horário de hoje para pegar eventos que já começaram hoje
+    now.setHours(0, 0, 0, 0);
     const timeMin = now.toISOString();
     
-    const nextWeek = new Date();
-    nextWeek.setDate(now.getDate() + 7);
-    const timeMax = nextWeek.toISOString();
+    const nextMonth = new Date();
+    nextMonth.setDate(now.getDate() + 30);
+    const timeMax = nextMonth.toISOString();
 
-    const url = `${CALENDAR_API_BASE}/primary/events?timeMin=${timeMin}&timeMax=${timeMax}&singleEvents=true&orderBy=startTime&maxResults=20&_=${Date.now()}`;
+    const url = `${CALENDAR_API_BASE}/primary/events?timeMin=${timeMin}&timeMax=${timeMax}&singleEvents=true&orderBy=startTime&maxResults=50&_=${Date.now()}`;
 
     const response = await fetch(url, {
       method: 'GET',
@@ -35,6 +37,7 @@ export const fetchCalendarEvents = async (accessToken: string): Promise<Calendar
     if (!data.items) return [];
 
     return data.items.map((item: any) => {
+      // Parsing seguro de datas
       const start = item.start.dateTime ? new Date(item.start.dateTime) : new Date(item.start.date + 'T00:00:00');
       const end = item.end.dateTime ? new Date(item.end.dateTime) : new Date(item.end.date + 'T23:59:59');
       const isAllDay = !item.start.dateTime;

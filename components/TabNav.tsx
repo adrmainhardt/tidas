@@ -1,6 +1,7 @@
+
 import React from 'react';
 import { ViewState } from '../types';
-import { LayoutDashboard, Globe, MessageSquareText, Mail, Trello } from 'lucide-react';
+import { LayoutDashboard, Globe, MessageSquareText, Briefcase, Trello } from 'lucide-react';
 
 interface TabNavProps {
   currentView: ViewState;
@@ -8,7 +9,7 @@ interface TabNavProps {
   badges: {
     sites: boolean; // True se tiver site offline
     forms: number;  // Número de forms não lidos
-    gmail?: number; // Número de emails não lidos
+    google?: number; // Soma de emails + eventos
     trello?: number; // Número de novos cartões
   };
 }
@@ -18,12 +19,12 @@ const TabNav: React.FC<TabNavProps> = ({ currentView, onChangeView, badges }) =>
     { id: ViewState.DASHBOARD, label: 'Início', icon: LayoutDashboard },
     { id: ViewState.SITES, label: 'Sites', icon: Globe, badge: badges.sites },
     { id: ViewState.FORMS, label: 'Forms', icon: MessageSquareText, badgeCount: badges.forms },
-    { id: ViewState.GMAIL, label: 'E-Mail', icon: Mail, badgeCount: badges.gmail },
+    { id: ViewState.GOOGLE, label: 'Google', icon: Briefcase, badgeCount: badges.google },
     { id: ViewState.TRELLO, label: 'Trello', icon: Trello, badgeCount: badges.trello },
   ];
 
   return (
-    <div className="fixed bottom-0 left-0 w-full bg-slate-900 border-t border-slate-800 pb-safe-area z-50">
+    <div className="fixed bottom-0 left-0 w-full bg-slate-900 border-t border-slate-800 pb-safe-area z-50 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.3)]">
       <div className="flex justify-around items-center h-16">
         {navItems.map((item) => {
           const Icon = item.icon;
@@ -41,12 +42,12 @@ const TabNav: React.FC<TabNavProps> = ({ currentView, onChangeView, badges }) =>
                 
                 {/* Badge para Sites (Bolinha simples se tiver erro) */}
                 {item.id === ViewState.SITES && item.badge && (
-                   <span className="absolute -top-1 -right-1 w-3 h-3 bg-rose-500 rounded-full border-2 border-slate-900"></span>
+                   <span className="absolute -top-1 -right-1 w-3 h-3 bg-rose-500 rounded-full border-2 border-slate-900 animate-pulse"></span>
                 )}
 
-                {/* Badge Numérico (Forms, Gmail e Trello) */}
-                {(item.id === ViewState.FORMS || item.id === ViewState.GMAIL || item.id === ViewState.TRELLO) && (item.badgeCount || 0) > 0 && (
-                  <span className="absolute -top-2 -right-3 bg-rose-500 text-white text-[9px] font-bold px-1.5 py-0.5 rounded-full border-2 border-slate-900 min-w-[18px] flex justify-center">
+                {/* Badge Numérico */}
+                {(item.badgeCount || 0) > 0 && (
+                  <span className="absolute -top-2 -right-3 bg-rose-500 text-white text-[9px] font-bold px-1.5 py-0.5 rounded-full border-2 border-slate-900 min-w-[18px] flex justify-center shadow-sm">
                     {item.badgeCount && item.badgeCount > 9 ? '9+' : item.badgeCount}
                   </span>
                 )}

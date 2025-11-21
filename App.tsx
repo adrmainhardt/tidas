@@ -1,6 +1,7 @@
+
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { DEFAULT_SITES, MOCK_FORMS, GOOGLE_CLIENT_ID } from './constants';
-import { SiteConfig, SiteStatus, ViewState, FormSubmission, EmailMessage, TrelloBoard, TrelloList, TrelloCard } from './types';
+import { SiteConfig, SiteStatus, ViewState, FormSubmission, EmailMessage, TrelloBoard, TrelloList, TrelloCard, CalendarEvent } from './types';
 import MonitorCard from './components/MonitorCard';
 import InboxItem from './components/InboxItem';
 import EmailItem from './components/EmailItem';
@@ -8,10 +9,15 @@ import TabNav from './components/TabNav';
 import FormDetailsModal from './components/FormDetailsModal';
 import EmailDetailsModal from './components/EmailDetailsModal';
 import TrelloCardItem from './components/TrelloCardItem';
+import CalendarEventItem from './components/CalendarEventItem';
+import SlackConfigModal from './components/SlackConfigModal';
 import { fetchFormsFromWP, fetchSiteStats } from './services/wpService';
 import { fetchGmailMessages } from './services/gmailService';
+import { fetchCalendarEvents } from './services/calendarService';
 import { fetchBoards, fetchLists, fetchCardsFromList } from './services/trelloService';
-import { Activity, RefreshCw, AlertTriangle, WifiOff, Trash2, BarChart3, Mail, LogIn, LogOut, Star, Copy, Info, Check, ShieldCheck, Trello, Settings, CheckSquare, ExternalLink, Filter, HelpCircle, Bell } from 'lucide-react';
+import { sendSlackNotification } from './services/slackService';
+import { generateDashboardInsight } from './services/geminiService';
+import { Activity, RefreshCw, AlertTriangle, WifiOff, Trash2, BarChart3, Mail, LogIn, LogOut, Copy, Info, Check, Trello, Settings, CheckSquare, ExternalLink, HelpCircle, Bell, CalendarDays, Calendar, Slack, Sparkles, X } from 'lucide-react';
 
 // Declaração global para o Google Identity Services
 declare global {
@@ -46,6 +52,33 @@ function usePersistedState<T>(key: string, initialValue: T): [T, React.Dispatch<
   return [state, setState];
 }
 
+// Função simples para feedback sonoro (Bip suave)
+const playNotificationSound = () => {
+  try {
+    const AudioContext = window.AudioContext || (window as any).webkitAudioContext;
+    if (!AudioContext) return;
+
+    const audioCtx = new AudioContext();
+    const oscillator = audioCtx.createOscillator();
+    const gainNode = audioCtx.createGain();
+
+    oscillator.connect(gainNode);
+    gainNode.connect(audioCtx.destination);
+
+    oscillator.type = 'sine';
+    oscillator.frequency.setValueAtTime(880, audioCtx.currentTime);
+    oscillator.frequency.exponentialRampToValueAtTime(440, audioCtx.currentTime + 0.3);
+
+    gainNode.gain.setValueAtTime(0.1, audioCtx.currentTime);
+    gainNode.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.3);
+
+    oscillator.start();
+    oscillator.stop(audioCtx.currentTime + 0.3);
+  } catch (e) {
+    console.error("Erro ao reproduzir som:", e);
+  }
+};
+
 // Cores para as listas do Trello (cíclico)
 const TRELLO_COLORS = ['blue', 'amber', 'emerald', 'purple', 'rose', 'cyan', 'indigo', 'lime'];
 
@@ -59,94 +92,96 @@ const App: React.FC = () => {
   // Notification Permission State
   const [notifPermission, setNotifPermission] = useState<NotificationPermission>('default');
 
-  // Gmail States
-  const [gmailToken, setGmailToken] = usePersistedState<string | null>('monitor_gmail_token', null);
+  // Google Services States (Gmail + Calendar)
+  // Usamos um único token para ambos os serviços (googleToken)
+  const [googleToken, setGoogleToken] = usePersistedState<string | null>('monitor_google_token', null);
   const [emails, setEmails] = useState<EmailMessage[]>([]);
-  const [isLoadingGmail, setIsLoadingGmail] = useState(false);
+  const [events, setEvents] = useState<CalendarEvent[]>([]);
+  const [isLoadingGoogle, setIsLoadingGoogle] = useState(false);
   const [isGoogleReady, setIsGoogleReady] = useState(false);
   const [copyFeedback, setCopyFeedback] = useState(false);
   const [authError, setAuthError] = useState<boolean>(false); 
   const [authErrorType, setAuthErrorType] = useState<string | null>(null);
   const [apiNotEnabled, setApiNotEnabled] = useState<boolean>(false);
-  const [showHelp, setShowHelp] = useState(false);
   const [selectedEmailId, setSelectedEmailId] = useState<string | null>(null);
+  const [googleSubTab, setGoogleSubTab] = useState<'mail' | 'calendar'>('mail');
   const tokenClient = useRef<any>(null);
+
+  // Insight AI States
+  const [insightResult, setInsightResult] = useState<string | null>(null);
+  const [isLoadingInsight, setIsLoadingInsight] = useState(false);
+  const [showInsightModal, setShowInsightModal] = useState(false);
 
   // Trello States
   const [trelloKey, setTrelloKey] = usePersistedState<string>('monitor_trello_key', '');
   const [trelloToken, setTrelloToken] = usePersistedState<string>('monitor_trello_token', '');
   const [trelloBoardId, setTrelloBoardId] = usePersistedState<string>('monitor_trello_board', '');
   const [trelloListIds, setTrelloListIds] = usePersistedState<string[]>('monitor_trello_lists', []);
+  const [trelloLastView, setTrelloLastView] = usePersistedState<string>('monitor_trello_last_view', new Date(0).toISOString());
   const [trelloBadgeCount, setTrelloBadgeCount] = useState(0);
-  
-  // Trello Data (Não persistido para evitar cache velho)
   const [trelloCards, setTrelloCards] = useState<TrelloCard[]>([]);
   const [availableBoards, setAvailableBoards] = useState<TrelloBoard[]>([]);
   const [availableLists, setAvailableLists] = useState<TrelloList[]>([]);
   const [isLoadingTrello, setIsLoadingTrello] = useState(false);
-  const [isConfiguringTrello, setIsConfiguringTrello] = useState(false);
   const [isSelectingLists, setIsSelectingLists] = useState(false); 
   const [activeTrelloFilter, setActiveTrelloFilter] = useState<string>('ALL');
+
+  // Slack State
+  const [slackWebhook, setSlackWebhook] = usePersistedState<string>('monitor_slack_webhook', '');
+  const [showSlackConfig, setShowSlackConfig] = useState(false);
 
   // Persistência de estados de leitura e exclusão
   const [readFormIds, setReadFormIds] = usePersistedState<string[]>('monitor_read_forms_v2', []);
   const [deletedFormIds, setDeletedFormIds] = usePersistedState<string[]>('monitor_deleted_forms_v2', []);
 
-  // Refs para evitar Stale Closures no setInterval/async functions
+  // Refs
   const deletedIdsRef = useRef<string[]>([]);
   const readIdsRef = useRef<string[]>([]);
   const sitesRef = useRef<SiteConfig[]>(DEFAULT_SITES);
-  
-  // Refs para detecção de novos itens (Notificações)
   const prevEmailIdsRef = useRef<string[]>([]);
   const prevTrelloCardIdsRef = useRef<string[]>([]);
+  const slackWebhookRef = useRef<string>('');
 
-  // Mantém os refs sempre atualizados
   useEffect(() => { deletedIdsRef.current = deletedFormIds || []; }, [deletedFormIds]);
   useEffect(() => { readIdsRef.current = readFormIds || []; }, [readFormIds]);
   useEffect(() => { sitesRef.current = sites; }, [sites]);
+  useEffect(() => { slackWebhookRef.current = slackWebhook; }, [slackWebhook]);
 
-  // Força o modo de seleção se não houver listas selecionadas
   useEffect(() => {
-    if (trelloListIds.length === 0) {
-      setIsSelectingLists(true);
-    }
+    if (trelloListIds.length === 0) setIsSelectingLists(true);
   }, [trelloListIds.length]);
 
-  // Reset Trello badge quando abre a view
   useEffect(() => {
     if (currentView === ViewState.TRELLO) {
+      setTrelloLastView(new Date().toISOString());
       setTrelloBadgeCount(0);
     }
   }, [currentView]);
 
-  // Inicializa Google Identity Services (OAuth)
+  // Inicializa Google Identity Services
   useEffect(() => {
     const initGoogleAuth = () => {
       if (window.google && window.google.accounts && !tokenClient.current) {
         try {
           tokenClient.current = window.google.accounts.oauth2.initTokenClient({
             client_id: GOOGLE_CLIENT_ID,
-            scope: 'https://www.googleapis.com/auth/gmail.readonly',
-            prompt: 'consent',
+            // Scopes para Gmail e Calendar juntos
+            scope: 'https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/calendar.readonly',
+            prompt: 'consent', // Força o consentimento na primeira vez
             callback: (response: any) => {
               if (response.access_token) {
-                setGmailToken(response.access_token);
+                setGoogleToken(response.access_token);
                 setAuthError(false);
                 setAuthErrorType(null);
                 setApiNotEnabled(false);
-                fetchGmail(response.access_token);
+                fetchGoogleData(response.access_token);
               }
             },
             error_callback: (error: any) => {
                 console.error("Google Auth Error:", error);
                 setAuthError(true);
-                
-                if (error.type === 'popup_closed_by_user') {
-                   setAuthErrorType('popup_closed');
-                } else {
-                   setAuthErrorType(error.type || 'generic');
-                }
+                if (error.type === 'popup_closed_by_user') setAuthErrorType('popup_closed');
+                else setAuthErrorType(error.type || 'generic');
             }
           });
           setIsGoogleReady(true);
@@ -162,11 +197,10 @@ const App: React.FC = () => {
         clearInterval(timer);
       }
     }, 500);
-
     return () => clearInterval(timer);
   }, []);
 
-  // Verificar status de permissão de notificação
+  // Notificações
   useEffect(() => {
     if (typeof window !== 'undefined' && 'Notification' in window) {
       setNotifPermission(Notification.permission);
@@ -179,97 +213,66 @@ const App: React.FC = () => {
         const permission = await Notification.requestPermission();
         setNotifPermission(permission);
         if (permission === 'granted') {
-          new Notification('Notificações Ativadas', {
-            body: 'Você receberá alertas de sites, emails e trello.',
-            icon: 'https://tidas.com.br/wp-content/uploads/2025/11/icoapp.png'
-          });
+          sendNotification('Notificações Ativadas', 'Você receberá alertas.');
         }
       } catch (error) {
         console.error('Erro ao solicitar permissão:', error);
       }
-    } else {
-      alert('Seu navegador não suporta notificações.');
     }
   };
 
   const sendNotification = (title: string, body: string) => {
+    playNotificationSound();
     try {
       if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
-         // Em mobile, a notificação pode não aparecer se o app não estiver em "background" ou se o SO bloquear.
-         // Service Workers seriam ideais, mas em client-side puro, tentamos o padrão.
-         const n = new Notification(title, { 
+         new Notification(title, { 
            body, 
            icon: 'https://tidas.com.br/wp-content/uploads/2025/11/icoapp.png',
-           tag: 'tidas-notification'
+           tag: 'tidas-notification',
+           requireInteraction: false
          });
-         // Algumas versões do Android requerem vibração explícita
-         if (navigator.vibrate) navigator.vibrate(200);
+         if (navigator.vibrate) navigator.vibrate([100, 50, 100]);
       }
     } catch (e) {
-      console.warn('Falha ao enviar notificação:', e);
+      console.warn('Falha notificação:', e);
     }
   };
 
+  // Site Checker
   const checkSiteStatus = async (site: SiteConfig): Promise<SiteConfig> => {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 10000); // 10s timeout
+    const timeoutId = setTimeout(() => controller.abort(), 10000);
     const startTime = performance.now();
 
     try {
       const stats = await fetchSiteStats(site);
-      
       const endTime = performance.now();
       clearTimeout(timeoutId);
       const latency = Math.round(endTime - startTime);
 
       if (latency > 3000 && (site.responseTime || 0) < 3000 && site.status === SiteStatus.ONLINE) {
-        sendNotification('Instabilidade Detectada', `O site ${site.name} está respondendo muito lentamente (${latency}ms).`);
+        sendNotification('Instabilidade', `O site ${site.name} está lento.`);
+        if (slackWebhookRef.current) {
+           sendSlackNotification(slackWebhookRef.current, `⚠️ *Instabilidade*: O site ${site.name} está respondendo lentamente (${latency}ms).`);
+        }
       }
 
       if (stats) {
-        return {
-          ...site,
-          status: SiteStatus.ONLINE,
-          lastChecked: new Date(),
-          responseTime: latency,
-          onlineUsers: stats.online,
-          monthlyVisitors: stats.monthly
-        };
+        return { ...site, status: SiteStatus.ONLINE, lastChecked: new Date(), responseTime: latency, onlineUsers: stats.online, monthlyVisitors: stats.monthly };
       }
 
-      await fetch(site.url, { 
-        method: 'HEAD', 
-        mode: 'no-cors',
-        signal: controller.signal 
-      });
-      
+      await fetch(site.url, { method: 'HEAD', mode: 'no-cors', signal: controller.signal });
       const fallbackLatency = Math.round(performance.now() - startTime);
 
-      if (fallbackLatency > 3000 && (site.responseTime || 0) < 3000 && site.status === SiteStatus.ONLINE) {
-        sendNotification('Instabilidade Detectada', `O site ${site.name} está respondendo muito lentamente (${fallbackLatency}ms).`);
-      }
-
-      return {
-        ...site,
-        status: SiteStatus.ONLINE,
-        lastChecked: new Date(),
-        responseTime: fallbackLatency,
-        onlineUsers: site.onlineUsers || 0,
-        monthlyVisitors: site.monthlyVisitors || 0
-      };
-
+      return { ...site, status: SiteStatus.ONLINE, lastChecked: new Date(), responseTime: fallbackLatency, onlineUsers: site.onlineUsers || 0, monthlyVisitors: site.monthlyVisitors || 0 };
     } catch (error) {
       if (site.status === SiteStatus.ONLINE || site.status === SiteStatus.CHECKING) {
-         sendNotification('Site Offline!', `URGENTE: O site ${site.name} parou de responder ou está fora do ar.`);
+         sendNotification('Site Offline!', `URGENTE: ${site.name} fora do ar.`);
+         if (slackWebhookRef.current) {
+           sendSlackNotification(slackWebhookRef.current, `🚨 *OFFLINE*: O site ${site.name} parece estar fora do ar!`);
+        }
       }
-
-      return {
-        ...site,
-        status: SiteStatus.OFFLINE,
-        lastChecked: new Date(),
-        onlineUsers: 0,
-        monthlyVisitors: site.monthlyVisitors
-      };
+      return { ...site, status: SiteStatus.OFFLINE, lastChecked: new Date(), onlineUsers: 0, monthlyVisitors: site.monthlyVisitors };
     }
   };
 
@@ -284,16 +287,15 @@ const App: React.FC = () => {
 
   const checkAllSites = useCallback(async () => {
     setSites(prev => prev.map(s => ({ ...s, status: SiteStatus.CHECKING })));
-    const currentSites = sitesRef.current;
-    const updatedSitesResults = await Promise.all(currentSites.map(site => checkSiteStatus(site)));
-    setSites(updatedSitesResults);
+    const results = await Promise.all(sitesRef.current.map(site => checkSiteStatus(site)));
+    setSites(results);
   }, []);
 
+  // Forms Sync
   const syncForms = async () => {
     setIsLoadingForms(true);
     try {
-      const promises = sitesRef.current.map(site => fetchFormsFromWP(site));
-      const results = await Promise.all(promises);
+      const results = await Promise.all(sitesRef.current.map(site => fetchFormsFromWP(site)));
       const fetchedForms = results.flat();
       
       if (fetchedForms.length > 0) {
@@ -302,8 +304,7 @@ const App: React.FC = () => {
           const currentReadIds = readIdsRef.current || [];
           
           const activeForms = fetchedForms.filter(f => 
-            !currentDeletedIds.includes(f.id) && 
-            f.timestamp instanceof Date && !isNaN(f.timestamp.getTime())
+            !currentDeletedIds.includes(f.id) && !isNaN(f.timestamp.getTime())
           );
           
           const processedForms = activeForms.map(f => ({
@@ -313,37 +314,43 @@ const App: React.FC = () => {
 
           const previousIds = currentForms.map(c => c.id);
           const newArrivals = processedForms.filter(p => 
-            !previousIds.includes(p.id) && 
-            !p.isRead && 
-            !currentDeletedIds.includes(p.id)
+            !previousIds.includes(p.id) && !p.isRead && !currentDeletedIds.includes(p.id)
           );
           
           if (newArrivals.length > 0) {
              sendNotification('Novo Formulário', `Você recebeu ${newArrivals.length} nova(s) mensagem(ns).`);
+             
+             // Notificação Slack
+             if (slackWebhookRef.current) {
+               newArrivals.forEach(form => {
+                 const siteName = sitesRef.current.find(s => s.id === form.siteId)?.name || 'Site';
+                 const slackMsg = `📩 *Nova mensagem em ${siteName}*\n*De:* ${form.senderName} (${form.senderEmail})\n*Mensagem:* ${form.message}`;
+                 sendSlackNotification(slackWebhookRef.current, slackMsg);
+               });
+             }
           }
 
           return processedForms.sort((a, b) => {
-            if (a.isRead !== b.isRead) {
-              return a.isRead ? 1 : -1;
-            }
+            if (a.isRead !== b.isRead) return a.isRead ? 1 : -1;
             return b.timestamp.getTime() - a.timestamp.getTime();
           });
         });
       }
     } catch (e) {
-      console.error("Erro crítico ao sincronizar forms", e);
+      console.error("Erro forms", e);
     } finally {
       setIsLoadingForms(false);
     }
   };
 
-  const fetchGmail = async (tokenOverride?: string) => {
-    const token = tokenOverride || gmailToken;
+  // Google Data Fetch (Gmail + Calendar)
+  const fetchGoogleData = async (tokenOverride?: string) => {
+    const token = tokenOverride || googleToken;
     if (!token) return;
     
-    setIsLoadingGmail(true);
-
+    setIsLoadingGoogle(true);
     try {
+      // Fetch Gmail
       const messages = await fetchGmailMessages(token, 80);
       setApiNotEnabled(false);
 
@@ -351,24 +358,49 @@ const App: React.FC = () => {
       const newUnread = currentUnread.filter(m => !prevEmailIdsRef.current.includes(m.id));
 
       if (prevEmailIdsRef.current.length > 0 && newUnread.length > 0) {
-         sendNotification('Novo E-mail', `Você recebeu ${newUnread.length} novo(s) e-mail(s) importante(s).`);
+         sendNotification('Novo E-mail', `${newUnread.length} novo(s) e-mail(s).`);
       }
-      
       prevEmailIdsRef.current = messages.map(m => m.id);
       setEmails(messages);
+
+      // Fetch Calendar
+      const calendarEvents = await fetchCalendarEvents(token);
+      setEvents(calendarEvents);
+
     } catch (error: any) {
-      console.error("Erro ao carregar Gmail:", error);
-      if (error.message === 'API_NOT_ENABLED' || (error.message && error.message.includes('403'))) {
+      console.error("Erro Google:", error);
+      if (error.message === 'API_NOT_ENABLED') {
         setApiNotEnabled(true);
       } else if (error.message === 'AUTH_EXPIRED') {
-        setGmailToken(null);
-        setApiNotEnabled(false);
+        // NÃO limpa o token imediatamente para evitar UX ruim
+        // Apenas marca erro de autenticação para o usuário reconectar manualmente
+        console.warn("Token expirado");
       }
     } finally {
-      setIsLoadingGmail(false);
+      setIsLoadingGoogle(false);
     }
   };
 
+  const handleConnectGoogle = () => {
+    if (tokenClient.current) {
+      setAuthError(false); 
+      tokenClient.current.requestAccessToken();
+    } else {
+      alert("Google Auth carregando...");
+    }
+  };
+
+  const handleDisconnectGoogle = () => {
+    setGoogleToken(null);
+    setEmails([]);
+    setEvents([]);
+    setAuthError(false);
+    if (window.google && googleToken) {
+      try { window.google.accounts.oauth2.revoke(googleToken, () => {}); } catch (e) {}
+    }
+  };
+
+  // Trello Logic
   const loadTrelloBoards = async () => {
     if (!trelloKey || !trelloToken) return;
     setIsLoadingTrello(true);
@@ -376,8 +408,7 @@ const App: React.FC = () => {
       const boards = await fetchBoards(trelloKey, trelloToken);
       setAvailableBoards(boards);
     } catch (e) {
-      console.error(e);
-      alert('Erro ao carregar quadros. Verifique suas chaves.');
+      alert('Erro Trello. Verifique chaves.');
     } finally {
       setIsLoadingTrello(false);
     }
@@ -389,27 +420,22 @@ const App: React.FC = () => {
       const lists = await fetchLists(trelloKey, trelloToken, boardId);
       setAvailableLists(lists);
       return lists;
-    } catch (e) {
-      console.error(e);
-      return [];
-    } finally {
-      setIsLoadingTrello(false);
-    }
+    } catch (e) { return []; } finally { setIsLoadingTrello(false); }
   };
 
   const fetchTrelloCards = async () => {
     if (!trelloKey || !trelloToken || !trelloListIds.length) return;
     setIsLoadingTrello(true);
     try {
-      let currentAvailableLists = availableLists;
+      let currentLists = availableLists;
       if (availableLists.length === 0 && trelloBoardId) {
-         currentAvailableLists = await loadTrelloLists(trelloBoardId);
+         currentLists = await loadTrelloLists(trelloBoardId);
       }
 
       const allCards: TrelloCard[] = [];
       const promises = trelloListIds.map(async listId => {
           const cards = await fetchCardsFromList(trelloKey, trelloToken, listId);
-          const listName = currentAvailableLists.find(l => l.id === listId)?.name || 'Lista';
+          const listName = currentLists.find(l => l.id === listId)?.name || 'Lista';
           return cards.map(c => ({ ...c, listName }));
       });
 
@@ -417,759 +443,412 @@ const App: React.FC = () => {
       results.forEach(listCards => allCards.push(...listCards));
       
       const newCards = allCards.filter(c => !prevTrelloCardIdsRef.current.includes(c.id));
-      
-      if (newCards.length > 0) {
-         if (prevTrelloCardIdsRef.current.length > 0) {
-            sendNotification('Trello: Nova Atividade', `${newCards.length} novo(s) cartão(ões) adicionado(s).`);
-         }
-         // Incrementa badge se não estiver na view do Trello
-         if (currentView !== ViewState.TRELLO) {
-            setTrelloBadgeCount(prev => prev + newCards.length);
-         }
+      if (newCards.length > 0 && prevTrelloCardIdsRef.current.length > 0) {
+         sendNotification('Trello', `${newCards.length} cartões novos.`);
+      }
+
+      if (currentView !== ViewState.TRELLO) {
+        const lastViewDate = new Date(trelloLastView);
+        const unreadCards = allCards.filter(c => new Date(c.dateLastActivity) > lastViewDate);
+        setTrelloBadgeCount(unreadCards.length);
+      } else {
+        setTrelloBadgeCount(0);
       }
 
       prevTrelloCardIdsRef.current = allCards.map(c => c.id);
       setTrelloCards(allCards.sort((a, b) => b.dateLastActivity.getTime() - a.dateLastActivity.getTime()));
-    } catch (e) {
-      console.error("Erro Trello Cards", e);
-    } finally {
-      setIsLoadingTrello(false);
-    }
+    } catch (e) { console.error("Erro Trello", e); } finally { setIsLoadingTrello(false); }
   };
 
-  useEffect(() => {
-    if (trelloKey && trelloToken && trelloBoardId && availableLists.length === 0) {
-      loadTrelloLists(trelloBoardId);
-    }
-  }, [trelloBoardId]);
+  // Insight Generation
+  const handleGenerateInsight = async () => {
+    setIsLoadingInsight(true);
+    setShowInsightModal(true);
+    
+    const now = new Date();
+    const todayEvents = events.filter(e => e.start.getDate() === now.getDate());
+    
+    const context = {
+        sites: sites.map(s => `${s.name}: ${s.status}`),
+        forms: forms.filter(f => !f.isRead).slice(0, 3).map(f => `${f.senderName}: ${f.message.substring(0, 50)}...`),
+        emails: emails.filter(e => e.isUnread).slice(0, 5).map(e => e.subject),
+        events: todayEvents.map(e => `${e.title} às ${e.start.getHours()}:${e.start.getMinutes()}`),
+        trello: trelloBadgeCount
+    };
 
-  useEffect(() => {
-    if (currentView === ViewState.TRELLO && trelloKey && trelloToken && trelloListIds.length > 0) {
-      fetchTrelloCards();
-    }
-  }, [currentView]);
-
-
-  const handleConnectGmail = () => {
-    if (GOOGLE_CLIENT_ID.includes('YOUR_CLIENT_ID')) {
-      alert('Configuração Necessária: Adicione um Client ID válido no arquivo constants.ts para conectar ao Google.');
-      return;
-    }
-
-    if (tokenClient.current) {
-      setAuthError(false); 
-      setAuthErrorType(null);
-      setApiNotEnabled(false);
-      tokenClient.current.requestAccessToken();
-    } else {
-      if (window.google) {
-         window.location.reload();
-      } else {
-         alert("O serviço do Google ainda está carregando. Verifique sua conexão.");
-      }
-    }
+    const result = await generateDashboardInsight(context);
+    setInsightResult(result);
+    setIsLoadingInsight(false);
   };
 
-  const handleDisconnectGmail = () => {
-    setGmailToken(null);
-    setEmails([]);
-    setAuthError(false);
-    setAuthErrorType(null);
-    setApiNotEnabled(false);
-    if (window.google && gmailToken) {
-      try {
-        window.google.accounts.oauth2.revoke(gmailToken, () => {
-          console.log('Token revogado');
-        });
-      } catch (e) {
-        console.log('Erro ao revogar (pode já estar inválido)');
-      }
-    }
-  };
-
+  // Init Loop
   useEffect(() => {
     let isMounted = true;
-
     const init = async () => {
        if (isMounted) {
          await checkAllSites();
          await syncForms();
-         if (gmailToken) fetchGmail(gmailToken);
+         if (googleToken) fetchGoogleData(googleToken);
+         
          if (trelloKey && trelloToken && trelloListIds.length > 0) {
-            // Fetch inicial do Trello para popular cache, sem notificar
             try {
-               // Lógica simplificada de fetch sem notificações no first load
-               const promises = trelloListIds.map(async listId => {
-                  return await fetchCardsFromList(trelloKey, trelloToken, listId);
-               });
+               const promises = trelloListIds.map(id => fetchCardsFromList(trelloKey, trelloToken, id));
                const results = await Promise.all(promises);
                const allCards = results.flat();
                prevTrelloCardIdsRef.current = allCards.map(c => c.id);
-               setTrelloCards(allCards);
+               setTrelloCards(allCards.sort((a, b) => b.dateLastActivity.getTime() - a.dateLastActivity.getTime()));
             } catch(e) {}
          }
        }
     };
-
     init();
 
     const intervalId = setInterval(async () => {
       if (isMounted) {
         await syncForms();
-        const currentSites = sitesRef.current;
-        const updatedResults = await Promise.all(currentSites.map(site => checkSiteStatus(site)));
-        setSites(updatedResults);
-        
-        if (gmailToken) fetchGmail(gmailToken);
-        if (trelloKey && trelloToken && trelloListIds.length > 0) {
-            fetchTrelloCards(); 
-        }
+        setSites(await Promise.all(sitesRef.current.map(site => checkSiteStatus(site))));
+        if (googleToken) fetchGoogleData(googleToken);
+        if (trelloKey && trelloToken && trelloListIds.length > 0) fetchTrelloCards();
       }
-    }, 60000);
+    }, 10000);
 
-    return () => {
-      isMounted = false;
-      clearInterval(intervalId);
-    };
-  }, [gmailToken]); 
+    return () => { isMounted = false; clearInterval(intervalId); };
+  }, [googleToken]); // Re-run se token mudar
 
+  // Handlers
   const handleMarkAsRead = (id: string) => {
     if (!readFormIds.includes(id)) {
-      const newReadIds = [...readFormIds, id];
-      setReadFormIds(newReadIds);
-      readIdsRef.current = newReadIds;
-      
-      setForms(prev => {
-         const updated = prev.map(f => f.id === id ? { ...f, isRead: true } : f);
-         return updated.sort((a, b) => {
-            if (a.isRead !== b.isRead) return a.isRead ? 1 : -1;
-            return b.timestamp.getTime() - a.timestamp.getTime();
-         });
-      });
+      setReadFormIds(prev => [...prev, id]);
+      setForms(prev => prev.map(f => f.id === id ? { ...f, isRead: true } : f).sort((a, b) => a.isRead ? 1 : -1));
     }
-  };
-
-  const handleOpenForm = (form: FormSubmission) => {
-    setSelectedFormId(form.id);
-    handleMarkAsRead(form.id);
-  };
-
-  const handleCloseForm = () => {
-    setSelectedFormId(null);
   };
 
   const handleDismissForm = (id: string) => {
-    if (!deletedFormIds.includes(id)) {
-        setDeletedFormIds(prev => {
-          const newState = [...prev, id];
-          deletedIdsRef.current = newState;
-          return newState;
-        });
-        setForms(prev => prev.filter(f => f.id !== id));
-    }
+    setDeletedFormIds(prev => [...prev, id]);
+    setForms(prev => prev.filter(f => f.id !== id));
   };
 
   const handleClearRead = () => {
     const readIds = forms.filter(f => f.isRead).map(f => f.id);
-    if (readIds.length === 0) return;
-
-    setDeletedFormIds(prev => {
-      const newState = [...prev, ...readIds];
-      deletedIdsRef.current = newState;
-      return newState;
-    });
+    setDeletedFormIds(prev => [...prev, ...readIds]);
     setForms(prev => prev.filter(f => !f.isRead));
   };
 
-  const handleOpenEmail = (email: EmailMessage) => {
-      setSelectedEmailId(email.id);
-      setEmails(prev => prev.map(e => e.id === email.id ? { ...e, isUnread: false } : e));
-  };
-
-  const handleDismissEmail = (id: string) => {
-      setEmails(prev => prev.filter(e => e.id !== id));
-  };
-
-  const copyOriginToClipboard = () => {
-    const origin = window.location.origin;
-    navigator.clipboard.writeText(origin).then(() => {
+  const copyOrigin = () => {
+    navigator.clipboard.writeText(window.location.origin).then(() => {
         setCopyFeedback(true);
         setTimeout(() => setCopyFeedback(false), 2000);
     });
   };
 
-  const offlineSitesCount = sites.filter(s => s.status === SiteStatus.OFFLINE).length;
-  const unreadFormsCount = forms.filter(f => !f.isRead).length;
-  const unreadEmailsCount = emails.filter(e => e.isUnread).length;
-  
-  const selectedForm = forms.find(f => f.id === selectedFormId);
-  const selectedEmail = emails.find(e => e.id === selectedEmailId);
-
+  // Render Views
   const renderDashboard = () => {
-    const onlineCount = sites.filter(s => s.status === SiteStatus.ONLINE).length;
-
     return (
       <div className="space-y-6 animate-fade-in">
-        {/* Header com Logo - Centralizada e sem texto */}
-        <div className="flex justify-center items-center mb-6">
-           <img 
-             src="https://tidas.com.br/wp-content/uploads/2025/08/logo_tidas_rodan2.svg" 
-             alt="Tidas" 
-             onClick={() => setCurrentView(ViewState.DASHBOARD)}
-             className="h-[1.6rem] w-auto drop-shadow-md cursor-pointer hover:opacity-80 transition-opacity" 
-           />
+        <div className="flex justify-center items-center mb-2">
+           <img src="https://tidas.com.br/wp-content/uploads/2025/08/logo_tidas_rodan2.svg" alt="Tidas" onClick={() => setCurrentView(ViewState.DASHBOARD)} className="h-[1.6rem] w-auto drop-shadow-md cursor-pointer" />
         </div>
 
-        {/* Solicitação de Permissão de Notificação */}
+        {/* INSIGHT BUTTON */}
+        <button 
+            onClick={handleGenerateInsight}
+            className="w-full relative overflow-hidden group bg-gradient-to-r from-indigo-600 to-purple-600 text-white p-4 rounded-xl shadow-lg shadow-purple-900/20 flex items-center justify-between border border-white/10"
+        >
+            <div className="absolute inset-0 bg-white/10 opacity-0 group-hover:opacity-100 transition-opacity" />
+            <div className="flex items-center gap-3 z-10">
+                <div className="p-2 bg-white/20 rounded-lg backdrop-blur-sm">
+                    <Sparkles className="w-5 h-5 text-yellow-300" />
+                </div>
+                <div className="text-left">
+                    <h3 className="font-bold text-sm leading-tight">Insight do Dia</h3>
+                    <p className="text-[10px] text-white/80">Resumo inteligente dos seus dados</p>
+                </div>
+            </div>
+            <RefreshCw className="w-4 h-4 text-white/50" />
+        </button>
+        
         {notifPermission === 'default' && (
-           <div className="bg-blue-500/10 border border-blue-500/30 rounded-xl p-4 flex flex-col items-center text-center">
-              <Bell className="w-6 h-6 text-blue-400 mb-2" />
-              <p className="text-sm text-blue-200 font-medium mb-2">Ative notificações para ser avisado de sites offline.</p>
-              <button 
-                onClick={requestNotificationPermission}
-                className="bg-blue-600 text-white text-xs font-bold px-4 py-2 rounded-lg hover:bg-blue-500 transition-colors"
-              >
-                ATIVAR NOTIFICAÇÕES
-              </button>
-           </div>
+           <button onClick={requestNotificationPermission} className="w-full bg-blue-600/20 text-blue-300 text-xs font-bold p-3 rounded-xl border border-blue-600/30 flex items-center justify-center gap-2">
+              <Bell className="w-4 h-4" /> ATIVAR NOTIFICAÇÕES
+           </button>
         )}
 
+        {/* Grid de Serviços */}
         <div className="grid grid-cols-2 gap-4">
-          <div 
-            onClick={() => setCurrentView(ViewState.SITES)}
-            className="bg-slate-800 p-4 rounded-2xl border border-slate-700 shadow-sm cursor-pointer hover:bg-slate-700 active:scale-95 transition-all relative"
-          >
-            {offlineSitesCount > 0 && (
-                <span className="absolute top-3 right-3 w-3 h-3 bg-rose-500 rounded-full animate-pulse"></span>
-            )}
-            <div className="flex items-center gap-2 mb-2 text-brand-400">
-              <Activity className="w-4 h-4" />
-              <span className="text-xs font-semibold uppercase">Uptime</span>
-            </div>
-            <div className="text-2xl font-bold text-slate-100">{onlineCount}/{sites.length}</div>
-            <div className="text-xs text-emerald-400 mt-1">Sites Online</div>
+          <div onClick={() => setCurrentView(ViewState.FORMS)} className="bg-slate-800 p-4 rounded-2xl border border-slate-700 shadow-sm cursor-pointer active:scale-95 transition-all">
+            <div className="flex items-center gap-2 mb-2 text-brand-400"><AlertTriangle className="w-4 h-4" /><span className="text-xs font-semibold">ALERTAS</span></div>
+            <div className="text-2xl font-bold text-slate-100">{forms.filter(f => !f.isRead).length}</div>
           </div>
-          
-          <div 
-            onClick={() => setCurrentView(ViewState.FORMS)}
-            className="bg-slate-800 p-4 rounded-2xl border border-slate-700 shadow-sm cursor-pointer hover:bg-slate-700 active:scale-95 transition-all relative"
-          >
-            <div className="flex items-center gap-2 mb-2 text-brand-400">
-              <AlertTriangle className="w-4 h-4" />
-              <span className="text-xs font-semibold uppercase">Alertas</span>
-            </div>
-            <div className="text-2xl font-bold text-slate-100">{unreadFormsCount}</div>
-            <div className="text-xs text-brand-secondary mt-1">Novos Forms</div>
+          <div onClick={() => setCurrentView(ViewState.TRELLO)} className="bg-slate-800 p-4 rounded-2xl border border-slate-700 shadow-sm cursor-pointer active:scale-95 transition-all">
+             <div className="flex items-center gap-2 mb-2 text-blue-400"><Trello className="w-4 h-4" /><span className="text-xs font-semibold">TRELLO</span></div>
+             <div className="text-2xl font-bold text-slate-100">{trelloBadgeCount > 0 ? trelloBadgeCount : <Check className="w-6 h-6 text-emerald-500" />}</div>
+          </div>
+          {/* Google Card Unificado */}
+          <div onClick={() => setCurrentView(ViewState.GOOGLE)} className="col-span-2 bg-slate-800 p-4 rounded-2xl border border-slate-700 shadow-sm cursor-pointer active:scale-95 transition-all flex justify-between items-center">
+                <div className="flex flex-col gap-1">
+                     <div className="flex items-center gap-2 text-red-400"><Mail className="w-4 h-4" /><span className="text-xs font-semibold">GOOGLE</span></div>
+                     <div className="text-sm text-slate-400">
+                         {googleToken ? (
+                             <>
+                                 <span className="font-bold text-slate-200">{emails.filter(e => e.isUnread).length}</span> emails • <span className="font-bold text-slate-200">{events.filter(e => e.start.getDate() === new Date().getDate()).length}</span> eventos hoje
+                             </>
+                         ) : 'Conectar'}
+                     </div>
+                </div>
+                {!googleToken && <LogIn className="w-5 h-5 text-slate-500" />}
           </div>
         </div>
-        
-        <div 
-          onClick={() => setCurrentView(ViewState.GMAIL)}
-          className="bg-slate-800 p-4 rounded-2xl border border-slate-700 shadow-sm cursor-pointer hover:bg-slate-700 active:scale-95 transition-all flex justify-between items-center"
-        >
-           <div className="flex items-center gap-3">
-             <div className="p-2 bg-red-500/10 rounded-full">
-               <Mail className="w-5 h-5 text-red-400" />
-             </div>
-             <div>
-               <h3 className="text-sm font-semibold text-slate-100">E-Mail</h3>
-               <p className="text-xs text-slate-400">{gmailToken ? (unreadEmailsCount > 0 ? `${unreadEmailsCount} não lidos` : 'Sem e-mails não lidos') : 'Não conectado'}</p>
-             </div>
-           </div>
-           {gmailToken && unreadEmailsCount > 0 && (
-             <span className="bg-red-500 text-white text-xs font-bold px-2 py-1 rounded-full">{unreadEmailsCount}</span>
-           )}
-        </div>
 
-         <div 
-          onClick={() => setCurrentView(ViewState.TRELLO)}
-          className="bg-slate-800 p-4 rounded-2xl border border-slate-700 shadow-sm cursor-pointer hover:bg-slate-700 active:scale-95 transition-all flex justify-between items-center"
-        >
-           <div className="flex items-center gap-3">
-             <div className="p-2 bg-blue-500/10 rounded-full">
-               <Trello className="w-5 h-5 text-blue-400" />
-             </div>
-             <div>
-               <h3 className="text-sm font-semibold text-slate-100">Trello</h3>
-               <p className="text-xs text-slate-400">
-                  {trelloListIds.length > 0 
-                    ? `Monitorando ${trelloListIds.length} listas` 
-                    : 'Não configurado'}
-               </p>
-             </div>
+        {/* Lista de Sites na Home (Minimal) */}
+        <div className="pb-20">
+           <div className="flex justify-between items-center mb-4 px-1">
+              <h3 className="text-lg font-bold text-slate-100">Status dos Sites</h3>
+              <button onClick={checkAllSites} className="p-2 bg-brand-secondary/20 text-brand-secondary rounded-full hover:bg-brand-secondary/30"><RefreshCw className="w-4 h-4" /></button>
            </div>
-           {trelloBadgeCount > 0 && (
-              <span className="bg-rose-500 text-white text-xs font-bold px-2 py-1 rounded-full">{trelloBadgeCount}</span>
-           )}
-        </div>
-
-        <div>
-          <h2 className="text-lg font-bold text-slate-100 mb-4 px-1">Status Geral</h2>
-          {sites.map(site => (
-            <div key={site.id} className="mb-3 bg-slate-800/50 rounded-lg p-3 border border-slate-700/50 flex items-center justify-between">
-              <div className="flex flex-col">
-                <span className="text-sm font-medium text-slate-200">{site.name}</span>
-                {site.status === SiteStatus.ONLINE && (
-                  <span className="text-[10px] text-slate-400 flex items-center gap-1 mt-0.5">
-                    <BarChart3 className="w-3 h-3 text-purple-400" />
-                    {site.monthlyVisitors !== undefined ? site.monthlyVisitors.toLocaleString('pt-BR') : '-'} visitantes/mês
-                  </span>
-                )}
-              </div>
-              <div className={`w-2.5 h-2.5 rounded-full ${site.status === SiteStatus.ONLINE ? 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]' : site.status === SiteStatus.OFFLINE ? 'bg-rose-500' : 'bg-slate-500'}`}></div>
-            </div>
-          ))}
+           {sites.map(site => <MonitorCard key={site.id} site={site} onRefresh={handleRefreshSite} minimal={true} />)}
         </div>
       </div>
     );
   };
 
-  const renderSites = () => (
-    <div className="pb-20 animate-fade-in">
-      <div className="flex justify-between items-center mb-6 px-1">
-        <h2 className="text-xl font-bold text-slate-100">Meus Sites</h2>
-        <button 
-          onClick={() => checkAllSites()}
-          className="p-2 bg-brand-secondary/20 text-brand-secondary rounded-full hover:bg-brand-secondary/30 transition-colors"
-        >
-          <RefreshCw className="w-5 h-5" />
-        </button>
+  const renderGoogleLogin = (serviceName: string) => (
+    <div className="flex flex-col items-center justify-center h-[70vh] px-6 text-center animate-fade-in">
+      <div className="w-20 h-20 bg-slate-800 rounded-full flex items-center justify-center mb-6 shadow-xl border border-slate-700">
+        <LogIn className="w-10 h-10 text-blue-500" />
       </div>
-      {sites.map(site => (
-        <MonitorCard key={site.id} site={site} onRefresh={handleRefreshSite} />
-      ))}
-    </div>
-  );
+      <h2 className="text-2xl font-bold text-slate-100 mb-2">Conectar Google</h2>
+      <p className="text-slate-400 mb-8 max-w-xs text-sm">
+        Faça login para acessar seu {serviceName} e Agenda.
+      </p>
 
-  const renderForms = () => (
-    <div className="pb-20 animate-fade-in overflow-x-hidden">
-      <div className="flex justify-between items-center mb-6 px-1">
-        <div className="flex items-center gap-2">
-          <h2 className="text-xl font-bold text-slate-100">Mensagens</h2>
-          <span className="text-xs bg-slate-800 text-slate-400 px-2 py-1 rounded-full">{forms.length}</span>
-        </div>
-        <div className="flex gap-2">
-          {forms.some(f => f.isRead) && (
-             <button 
-             onClick={handleClearRead}
-             className="p-2 text-slate-500 hover:text-rose-400 transition-colors"
-             title="Limpar lidos"
-           >
-             <Trash2 className="w-4 h-4" />
-           </button>
-          )}
-          <button 
-            onClick={syncForms}
-            className={`p-2 bg-brand-secondary/20 text-brand-secondary rounded-full hover:bg-brand-secondary/30 transition-all ${isLoadingForms ? 'animate-spin' : ''}`}
-          >
-            <RefreshCw className="w-4 h-4" />
-          </button>
-        </div>
-      </div>
-      
-      <div className="mb-4 px-1 text-xs text-slate-500 text-center opacity-70">
-        Deslize para o lado <span className="font-bold">←</span> para limpar alertas
-      </div>
-      
-      {forms.length === 0 && (
-        <div className="text-center py-10 text-slate-500">
-          <WifiOff className="w-10 h-10 mx-auto mb-3 opacity-50" />
-          <p className="text-sm">Nenhuma mensagem encontrada.</p>
-          <p className="text-xs mt-2 opacity-70">Verifique a conexão com o WordPress.</p>
+      {apiNotEnabled && (
+        <div className="w-full bg-slate-800/80 border border-slate-700 p-4 rounded-lg mb-6 text-left">
+           <p className="text-xs text-slate-400 mb-2">API não ativada no Cloud Console.</p>
+           <div className="flex items-center gap-2 bg-black/30 p-2 rounded border border-slate-700/50">
+              <code className="text-[9px] text-slate-300 break-all font-mono">{window.location.origin}</code>
+              <button onClick={copyOrigin} className="p-1 hover:bg-white/10 rounded"><Copy className="w-3 h-3" /></button>
+           </div>
         </div>
       )}
 
-      {forms.map(form => {
-        const site = sites.find(s => s.id === form.siteId);
-        return (
-          <InboxItem 
-            key={form.id} 
-            form={form} 
-            siteName={site?.name || 'Unknown'} 
-            onSelect={() => handleOpenForm(form)}
-            onDismiss={() => handleDismissForm(form.id)}
-          />
-        );
-      })}
+      <button onClick={handleConnectGoogle} disabled={!isGoogleReady} className="w-full bg-white text-slate-900 font-bold py-3.5 rounded-xl flex items-center justify-center gap-3 hover:bg-slate-100 disabled:opacity-50">
+        {isGoogleReady ? <> <img src="https://www.google.com/favicon.ico" className="w-4 h-4"/> Entrar com Google </> : 'Carregando...'}
+      </button>
+      <p className="text-[10px] text-slate-500 mt-4">O login expira em 1h por segurança.</p>
     </div>
   );
 
-  const renderTrello = () => {
-    if (isConfiguringTrello || !trelloKey || !trelloToken) {
-      return (
-        <div className="pb-20 animate-fade-in px-4">
-           <h2 className="text-xl font-bold text-slate-100 mb-4">Configurar Trello</h2>
-           
-           <div className="bg-blue-500/10 border border-blue-500/20 p-4 rounded-xl mb-6">
-              <h3 className="text-sm font-bold text-blue-400 mb-2 flex items-center gap-2">
-                 <Info className="w-4 h-4" /> Instruções
-              </h3>
-              <ol className="list-decimal list-inside text-xs text-slate-300 space-y-1.5">
-                <li>Clique em <span className="font-bold text-white">Obter API Key</span> abaixo.</li>
-                <li>Faça login no Trello se necessário e aceite os termos.</li>
-                <li>Copie a <span className="font-mono bg-black/30 px-1 rounded">API Key</span> e cole no campo 1.</li>
-                <li>Um botão <span className="font-bold text-emerald-400">Gerar Token</span> aparecerá. Clique nele.</li>
-                <li>Autorize o app e copie o Token gerado para o campo 2.</li>
-              </ol>
-           </div>
+  const renderGoogleHub = () => {
+    if (!googleToken) return renderGoogleLogin('Gmail e Agenda');
 
-           <div className="bg-slate-800 p-4 rounded-xl border border-slate-700 space-y-5">
-              <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1.5">1. API Key</label>
-                <div className="flex gap-2 mb-2">
-                   <input 
-                     type="text" 
-                     value={trelloKey} 
-                     onChange={e => setTrelloKey(e.target.value)}
-                     className="flex-1 bg-slate-900 border border-slate-700 rounded-lg p-2.5 text-sm text-white focus:border-blue-500 outline-none transition-colors"
-                     placeholder="Cole sua API Key aqui"
-                   />
+    const unreadEmails = emails.filter(e => e.isUnread).length;
+    const todayEvents = events.filter(e => {
+        const now = new Date();
+        return e.start.getDate() === now.getDate() && e.start.getMonth() === now.getMonth();
+    }).length;
+
+    return (
+        <div className="pb-20 animate-fade-in flex flex-col h-full">
+             {/* Header with Toggle */}
+             <div className="flex flex-col mb-4 px-1">
+                 <div className="flex justify-between items-center mb-4">
+                    <h2 className="text-xl font-bold text-slate-100">Google Workspace</h2>
+                    <div className="flex gap-2">
+                        <button onClick={handleDisconnectGoogle} className="p-2 text-slate-500 hover:text-rose-400"><LogOut className="w-5 h-5" /></button>
+                        <button onClick={() => fetchGoogleData(googleToken)} className={`p-2 bg-blue-500/20 text-blue-400 rounded-full ${isLoadingGoogle ? 'animate-spin' : ''}`}><RefreshCw className="w-4 h-4" /></button>
+                    </div>
+                 </div>
+                 
+                 <div className="bg-slate-800 p-1 rounded-xl flex gap-1">
+                     <button 
+                        onClick={() => setGoogleSubTab('mail')} 
+                        className={`flex-1 py-2 rounded-lg text-xs font-bold flex justify-center items-center gap-2 transition-colors ${googleSubTab === 'mail' ? 'bg-slate-700 text-white shadow-sm' : 'text-slate-400 hover:text-slate-300'}`}
+                     >
+                        <Mail className="w-3.5 h-3.5" /> E-mails
+                        {unreadEmails > 0 && <span className="bg-red-500 text-white text-[9px] px-1.5 py-0.5 rounded-full">{unreadEmails}</span>}
+                     </button>
+                     <button 
+                        onClick={() => setGoogleSubTab('calendar')} 
+                        className={`flex-1 py-2 rounded-lg text-xs font-bold flex justify-center items-center gap-2 transition-colors ${googleSubTab === 'calendar' ? 'bg-slate-700 text-white shadow-sm' : 'text-slate-400 hover:text-slate-300'}`}
+                     >
+                        <CalendarDays className="w-3.5 h-3.5" /> Agenda
+                        {todayEvents > 0 && <span className="bg-blue-500 text-white text-[9px] px-1.5 py-0.5 rounded-full">{todayEvents}</span>}
+                     </button>
+                 </div>
+             </div>
+
+             {/* Content Area */}
+             {googleSubTab === 'mail' && (
+                <div>
+                    {emails.length === 0 && !isLoadingGoogle && <div className="text-center py-10 text-slate-500"><Check className="w-8 h-8 text-emerald-500/50 mx-auto mb-2"/><p>Caixa limpa!</p></div>}
+                    {emails.map(email => <EmailItem key={email.id} email={email} onSelect={() => {setSelectedEmailId(email.id); setEmails(prev => prev.map(e => e.id === email.id ? { ...e, isUnread: false } : e));}} onDismiss={() => setEmails(prev => prev.filter(e => e.id !== email.id))} />)}
                 </div>
-                <a 
-                    href="https://trello.com/app-key" 
-                    target="_blank" 
-                    className="inline-flex items-center gap-2 text-xs bg-slate-700 hover:bg-slate-600 text-white px-3 py-2 rounded-lg transition-colors border border-slate-600"
-                >
-                     <ExternalLink className="w-3 h-3" /> Obter API Key no Trello
-                </a>
-              </div>
-              
-              <div className={`transition-opacity duration-300 ${!trelloKey ? 'opacity-50' : 'opacity-100'}`}>
-                <label className="block text-xs font-semibold text-slate-300 mb-1.5">2. Token</label>
-                <input 
-                  type="text" 
-                  value={trelloToken}
-                  onChange={e => setTrelloToken(e.target.value)}
-                  className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2.5 text-sm text-white focus:border-blue-500 outline-none transition-colors mb-2"
-                  placeholder="Cole seu Token aqui"
-                  disabled={!trelloKey}
-                />
-                
-                {trelloKey ? (
-                   <a 
-                     href={`https://trello.com/1/authorize?expiration=never&scope=read,write,account&response_type=token&name=Tidas&key=${trelloKey}`} 
-                     target="_blank" 
-                     className="inline-flex items-center gap-2 text-xs bg-emerald-600/20 text-emerald-400 border border-emerald-600/30 px-3 py-2 rounded-lg hover:bg-emerald-600/30 transition-colors"
-                   >
-                     <ExternalLink className="w-3 h-3" /> Gerar Token de Acesso
-                   </a>
-                ) : (
-                   <span className="text-[10px] text-slate-500 italic">
-                     (Preencha a API Key acima para liberar o link do Token)
-                   </span>
-                )}
-              </div>
+             )}
 
-              <button 
-                onClick={() => {
-                   setIsConfiguringTrello(false);
-                   loadTrelloBoards();
-                }}
-                disabled={!trelloKey || !trelloToken}
-                className="w-full bg-blue-600 text-white font-bold py-3 rounded-xl disabled:opacity-50 hover:bg-blue-500 transition-all shadow-lg shadow-blue-900/20 mt-2"
-              >
-                Salvar e Conectar
-              </button>
-           </div>
+             {googleSubTab === 'calendar' && (
+                <div>
+                     {events.filter(e => {
+                        const now = new Date();
+                        return e.start.getDate() === now.getDate() && e.start.getMonth() === now.getMonth();
+                     }).length > 0 && (
+                       <div className="mb-6">
+                         <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3 px-1">Hoje</h3>
+                         {events.filter(e => {
+                            const now = new Date();
+                            return e.start.getDate() === now.getDate() && e.start.getMonth() === now.getMonth();
+                         }).map(evt => <CalendarEventItem key={evt.id} event={evt} />)}
+                       </div>
+                     )}
+
+                     <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3 px-1">Próximos Dias</h3>
+                     {events.filter(e => {
+                        const now = new Date();
+                        return e.start > now || (e.start.getDate() !== now.getDate() && e.start > now);
+                     }).length === 0 && <p className="text-slate-500 text-sm text-center py-4">Agenda livre nos próximos dias.</p>}
+                     {events.filter(e => {
+                        const now = new Date();
+                        return e.start > now || (e.start.getDate() !== now.getDate() && e.start > now);
+                     }).map(evt => <CalendarEventItem key={evt.id} event={evt} />)}
+                </div>
+             )}
         </div>
-      );
-    }
-
-    if (!trelloBoardId || isSelectingLists) {
-      return (
-        <div className="pb-20 animate-fade-in px-4">
-          <div className="flex justify-between items-center mb-4">
-             <h2 className="text-xl font-bold text-slate-100">Selecionar Listas</h2>
-             <button onClick={() => setIsConfiguringTrello(true)} className="p-2 text-slate-400"><Settings className="w-5 h-5" /></button>
-          </div>
-
-          {!trelloBoardId ? (
-             <div className="space-y-3">
-               <p className="text-sm text-slate-400">Escolha o Quadro:</p>
-               {availableBoards.length === 0 && <button onClick={loadTrelloBoards} className="text-blue-400 text-xs underline">Carregar Quadros</button>}
-               {availableBoards.map(board => (
-                 <button
-                   key={board.id}
-                   onClick={() => {
-                     setTrelloBoardId(board.id);
-                     loadTrelloLists(board.id);
-                   }}
-                   className="w-full text-left p-3 bg-slate-800 rounded-lg border border-slate-700 hover:bg-slate-700"
-                 >
-                   {board.name}
-                 </button>
-               ))}
-             </div>
-          ) : (
-            <div className="space-y-3">
-               <div className="flex justify-between">
-                 <p className="text-sm text-slate-400">Marque as listas que deseja monitorar:</p>
-                 <button onClick={() => setTrelloBoardId('')} className="text-xs text-slate-500">Voltar</button>
-               </div>
-               
-               <div className="bg-slate-900/50 p-2 rounded-lg border border-slate-800 mb-2 max-h-[60vh] overflow-y-auto">
-                  {availableLists.map(list => {
-                    const isSelected = trelloListIds.includes(list.id);
-                    return (
-                      <button
-                        key={list.id}
-                        onClick={() => {
-                          if (isSelected) {
-                            setTrelloListIds(prev => prev.filter(id => id !== list.id));
-                          } else {
-                            setTrelloListIds(prev => [...prev, list.id]);
-                          }
-                        }}
-                        className={`w-full flex items-center justify-between p-3 mb-2 rounded-lg border transition-colors ${isSelected ? 'bg-blue-500/20 border-blue-500' : 'bg-slate-800 border-slate-700'}`}
-                      >
-                        <span>{list.name}</span>
-                        {isSelected ? <CheckSquare className="w-5 h-5 text-blue-400" /> : <div className="w-5 h-5 border border-slate-600 rounded"></div>}
-                      </button>
-                    );
-                  })}
-               </div>
-
-               <div className="bg-slate-800 p-3 rounded-lg text-xs text-center">
-                  Selecionado: <span className="font-bold text-white">{trelloListIds.length}</span> listas
-               </div>
-
-               <button 
-                 onClick={() => {
-                     setIsSelectingLists(false); 
-                     fetchTrelloCards();
-                 }}
-                 disabled={trelloListIds.length === 0}
-                 className="w-full mt-4 bg-emerald-600 text-white font-bold py-3 rounded-xl hover:bg-emerald-500 disabled:opacity-50 disabled:cursor-not-allowed"
-               >
-                 Confirmar Monitoramento
-               </button>
-            </div>
-          )}
-        </div>
-      );
-    }
-
-    const uniqueLists = trelloListIds.map(id => {
-      const listName = availableLists.find(l => l.id === id)?.name || 
-                       trelloCards.find(c => c.listId === id)?.listName || 
-                       'Lista Carregando...';
-      return { id, name: listName };
-    });
-
-    const filteredCards = trelloCards.filter(card => {
-      if (activeTrelloFilter === 'ALL') return true;
-      return card.listId === activeTrelloFilter;
-    });
-
-    return (
-      <div className="pb-20 animate-fade-in">
-         <div className="flex justify-between items-center mb-4 px-1">
-            <div className="flex items-center gap-2">
-              <h2 className="text-xl font-bold text-slate-100">Quadro Trello</h2>
-              <span className="text-xs bg-slate-800 text-slate-400 px-2 py-1 rounded-full">{trelloCards.length}</span>
-            </div>
-            <div className="flex gap-2">
-                <button onClick={() => setIsSelectingLists(true)} className="p-2 text-slate-400 hover:text-blue-400"><Settings className="w-5 h-5" /></button>
-                <button onClick={fetchTrelloCards} className={`p-2 bg-blue-500/20 text-blue-400 rounded-full ${isLoadingTrello ? 'animate-spin' : ''}`}><RefreshCw className="w-4 h-4" /></button>
-            </div>
-         </div>
-
-         <div className="flex gap-2 overflow-x-auto pb-4 mb-2 scrollbar-hide px-1">
-            <button 
-              onClick={() => setActiveTrelloFilter('ALL')}
-              className={`whitespace-nowrap px-3 py-1.5 rounded-lg text-xs font-bold transition-colors ${activeTrelloFilter === 'ALL' ? 'bg-blue-600 text-white' : 'bg-slate-800 text-slate-400 border border-slate-700'}`}
-            >
-              Todos
-            </button>
-            {uniqueLists.map((list, idx) => (
-               <button
-                 key={list.id}
-                 onClick={() => setActiveTrelloFilter(list.id)}
-                 className={`whitespace-nowrap px-3 py-1.5 rounded-lg text-xs font-bold transition-colors ${activeTrelloFilter === list.id ? 'bg-slate-200 text-slate-900' : 'bg-slate-800 text-slate-400 border border-slate-700'}`}
-               >
-                 {list.name}
-               </button>
-            ))}
-         </div>
-
-         {filteredCards.length === 0 && (
-            <div className="text-center py-10 text-slate-500">
-               <p>Nenhum cartão encontrado nesta visualização.</p>
-            </div>
-         )}
-
-         {filteredCards.map(card => {
-             const listIndex = trelloListIds.indexOf(card.listId);
-             const colorName = TRELLO_COLORS[listIndex % TRELLO_COLORS.length] || 'slate';
-             
-             return (
-               <TrelloCardItem 
-                 key={card.id} 
-                 card={card} 
-                 listColorName={colorName}
-               />
-             );
-         })}
-      </div>
-    );
-  };
-
-  const renderGmail = () => {
-    if (!gmailToken) {
-      return (
-        <div className="flex flex-col items-center justify-center h-[80vh] px-6 text-center animate-fade-in">
-          <div className="w-20 h-20 bg-slate-800 rounded-full flex items-center justify-center mb-6 shadow-xl border border-slate-700">
-            <Mail className="w-10 h-10 text-red-500" />
-          </div>
-          <h2 className="text-2xl font-bold text-slate-100 mb-2">Conectar E-Mail</h2>
-          <p className="text-slate-400 mb-8 max-w-xs">
-            Monitore e-mails importantes diretamente por aqui.
-          </p>
-
-          {apiNotEnabled && (
-            <div className="w-full bg-slate-800/80 border border-slate-700 p-4 rounded-lg mb-6 text-left">
-               <div className="flex items-center gap-2 text-blue-400 mb-2">
-                 <Info className="w-5 h-5" />
-                 <span className="font-bold text-sm">Configuração Necessária</span>
-               </div>
-               <p className="text-xs text-slate-400 mb-3">
-                 A API do Gmail ainda não está ativada no seu projeto do Google Cloud.
-               </p>
-               <a 
-                 href="https://console.cloud.google.com/apis/library/gmail.googleapis.com" 
-                 target="_blank"
-                 className="block w-full text-center py-2 bg-blue-600/20 text-blue-400 border border-blue-500/30 rounded-md text-xs font-bold hover:bg-blue-600/30 transition-colors"
-               >
-                 ATIVAR GMAIL API AGORA <ExternalLink className="inline w-3 h-3 ml-1" />
-               </a>
-               <p className="text-[10px] text-slate-500 mt-3 border-t border-slate-700 pt-2">
-                  Se for o primeiro acesso, adicione esta URL às "Origens JavaScript autorizadas" no <a href="https://console.cloud.google.com/apis/credentials" target="_blank" className="underline hover:text-blue-300">Google Cloud Console</a>:
-               </p>
-               <div className="flex items-center gap-2 mt-1 bg-black/30 p-2 rounded border border-slate-700/50">
-                  <code className="text-[9px] text-slate-300 break-all font-mono">{window.location.origin}</code>
-                  <button onClick={copyOriginToClipboard} className="p-1 hover:bg-white/10 rounded">
-                    {copyFeedback ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3 text-slate-400" />}
-                  </button>
-               </div>
-            </div>
-          )}
-
-          {authError && !apiNotEnabled && (
-             <div className="w-full bg-rose-500/10 border border-rose-500/20 p-3 rounded-lg mb-6 flex items-start gap-3">
-               <AlertTriangle className="w-5 h-5 text-rose-500 shrink-0 mt-0.5" />
-               <div className="text-left">
-                 <h3 className="text-sm font-bold text-rose-400">Erro de Autenticação</h3>
-                 <p className="text-xs text-slate-400 mt-1">
-                   {authErrorType === 'popup_closed' ? 'A janela de login foi fechada antes de concluir.' : 'Não foi possível conectar. Tente novamente.'}
-                 </p>
-               </div>
-             </div>
-          )}
-
-          <button 
-            onClick={handleConnectGmail}
-            disabled={!isGoogleReady}
-            className="w-full bg-white text-slate-900 font-bold py-3.5 rounded-xl flex items-center justify-center gap-3 hover:bg-slate-100 transition-colors disabled:opacity-50 shadow-lg shadow-slate-100/5"
-          >
-            {isGoogleReady ? (
-               <>
-                 <LogIn className="w-5 h-5" /> Entrar com Google
-               </>
-            ) : (
-               <span className="text-sm">Carregando serviço...</span>
-            )}
-          </button>
-        </div>
-      );
-    }
-
-    return (
-      <div className="pb-20 animate-fade-in">
-        <div className="flex justify-between items-center mb-6 px-1">
-          <div className="flex items-center gap-2">
-            <h2 className="text-xl font-bold text-slate-100">Caixa de Entrada</h2>
-            <span className="text-xs bg-slate-800 text-slate-400 px-2 py-1 rounded-full">{emails.length}</span>
-          </div>
-          <div className="flex gap-2">
-             <button onClick={() => setShowHelp(!showHelp)} className="p-2 text-slate-500 hover:text-slate-300"><HelpCircle className="w-5 h-5" /></button>
-             <button 
-              onClick={handleDisconnectGmail}
-              className="p-2 text-slate-500 hover:text-rose-400 transition-colors"
-              title="Desconectar"
-            >
-              <LogOut className="w-5 h-5" />
-            </button>
-            <button 
-              onClick={() => fetchGmail(gmailToken)}
-              className={`p-2 bg-red-500/20 text-red-400 rounded-full hover:bg-red-500/30 transition-all ${isLoadingGmail ? 'animate-spin' : ''}`}
-            >
-              <RefreshCw className="w-4 h-4" />
-            </button>
-          </div>
-        </div>
-
-        {showHelp && (
-           <div className="bg-slate-800 p-3 rounded-lg mb-4 text-xs text-slate-400 border border-slate-700">
-              <p className="mb-1"><strong>Dica:</strong> Apenas e-mails <u>não lidos</u> aparecem aqui.</p>
-              <p>Para ver todos, acesse o app oficial do Gmail.</p>
-           </div>
-        )}
-
-        {emails.length === 0 && !isLoadingGmail && (
-           <div className="text-center py-10 text-slate-500">
-              <div className="w-16 h-16 bg-slate-800 rounded-full flex items-center justify-center mx-auto mb-4">
-                 <Check className="w-8 h-8 text-emerald-500/50" />
-              </div>
-              <p className="text-sm">Tudo limpo! Nenhum e-mail novo.</p>
-           </div>
-        )}
-
-        {emails.map(email => (
-          <EmailItem 
-             key={email.id}
-             email={email}
-             onSelect={() => handleOpenEmail(email)}
-             onDismiss={() => handleDismissEmail(email.id)}
-          />
-        ))}
-      </div>
     );
   };
 
   return (
     <div className="min-h-screen bg-brand-900 text-slate-200 font-sans selection:bg-brand-secondary/30">
-      <main className="p-4 pt-8 max-w-md mx-auto min-h-screen relative">
+      <main className="max-w-md mx-auto min-h-screen relative pt-safe-area px-4 pb-safe-area mt-4">
         {currentView === ViewState.DASHBOARD && renderDashboard()}
-        {currentView === ViewState.SITES && renderSites()}
-        {currentView === ViewState.FORMS && renderForms()}
-        {currentView === ViewState.TRELLO && renderTrello()}
-        {currentView === ViewState.GMAIL && renderGmail()}
+        {currentView === ViewState.SITES && (
+            <div className="pb-20 animate-fade-in">
+                <div className="flex justify-between items-center mb-6 px-1">
+                    <h2 className="text-xl font-bold text-slate-100">Meus Sites</h2>
+                    <button onClick={checkAllSites} className="p-2 bg-brand-secondary/20 text-brand-secondary rounded-full hover:bg-brand-secondary/30"><RefreshCw className="w-5 h-5" /></button>
+                </div>
+                {sites.map(site => <MonitorCard key={site.id} site={site} onRefresh={handleRefreshSite} />)}
+            </div>
+        )}
+        {currentView === ViewState.FORMS && (
+            <div className="pb-20 animate-fade-in overflow-x-hidden">
+                <div className="flex justify-between items-center mb-6 px-1">
+                    <div className="flex items-center gap-2"><h2 className="text-xl font-bold text-slate-100">Mensagens</h2><span className="text-xs bg-slate-800 text-slate-400 px-2 py-1 rounded-full">{forms.length}</span></div>
+                    <div className="flex gap-2">
+                        <button onClick={() => setShowSlackConfig(true)} className={`p-2 ${slackWebhook ? 'text-emerald-400' : 'text-slate-500'} hover:text-emerald-300`}><Slack className="w-4 h-4" /></button>
+                        {forms.some(f => f.isRead) && <button onClick={handleClearRead} className="p-2 text-slate-500 hover:text-rose-400"><Trash2 className="w-4 h-4" /></button>}
+                        <button onClick={syncForms} className={`p-2 bg-brand-secondary/20 text-brand-secondary rounded-full ${isLoadingForms ? 'animate-spin' : ''}`}><RefreshCw className="w-4 h-4" /></button>
+                    </div>
+                </div>
+                {forms.length === 0 && <div className="text-center py-10 text-slate-500"><WifiOff className="w-10 h-10 mx-auto mb-3 opacity-50" /><p>Nenhuma mensagem.</p></div>}
+                {forms.map(f => <InboxItem key={f.id} form={f} siteName={sites.find(s => s.id === f.siteId)?.name || 'Site'} onSelect={() => {setSelectedFormId(f.id); handleMarkAsRead(f.id);}} onDismiss={() => handleDismissForm(f.id)} />)}
+            </div>
+        )}
+        {currentView === ViewState.TRELLO && (
+            <>
+              {!trelloKey || !trelloToken ? (
+                  <div className="pb-20 animate-fade-in px-4">
+                    <h2 className="text-xl font-bold text-slate-100 mb-4">Configurar Trello</h2>
+                    <div className="bg-slate-800 p-4 rounded-xl border border-slate-700 space-y-4">
+                        <input type="text" value={trelloKey} onChange={e => setTrelloKey(e.target.value)} className="w-full bg-slate-900 border border-slate-700 rounded-lg p-3 text-sm" placeholder="API Key" />
+                        <a href="https://trello.com/app-key" target="_blank" className="text-xs text-blue-400 flex items-center gap-1"><ExternalLink className="w-3 h-3"/> Obter Key</a>
+                        <input type="text" value={trelloToken} onChange={e => setTrelloToken(e.target.value)} className="w-full bg-slate-900 border border-slate-700 rounded-lg p-3 text-sm" placeholder="Token" disabled={!trelloKey} />
+                        {trelloKey && <a href={`https://trello.com/1/authorize?expiration=never&scope=read,write,account&response_type=token&name=Tidas&key=${trelloKey}`} target="_blank" className="text-xs text-emerald-400 flex items-center gap-1"><ExternalLink className="w-3 h-3"/> Gerar Token</a>}
+                        <button onClick={loadTrelloBoards} disabled={!trelloKey || !trelloToken} className="w-full bg-blue-600 text-white font-bold py-3 rounded-xl mt-2">Conectar</button>
+                    </div>
+                  </div>
+              ) : !trelloBoardId || isSelectingLists ? (
+                  <div className="pb-20 animate-fade-in px-4">
+                      <div className="flex justify-between items-center mb-4"><h2 className="text-xl font-bold text-slate-100">Configurar Listas</h2><button onClick={() => setTrelloKey('')} className="text-xs text-rose-400">Sair</button></div>
+                      {!trelloBoardId && availableBoards.map(b => <button key={b.id} onClick={() => {setTrelloBoardId(b.id); loadTrelloLists(b.id);}} className="w-full text-left p-3 bg-slate-800 mb-2 rounded-lg">{b.name}</button>)}
+                      {trelloBoardId && (
+                          <>
+                            <div className="max-h-[60vh] overflow-y-auto mb-4">
+                                {availableLists.map(l => (
+                                    <button key={l.id} onClick={() => setTrelloListIds(prev => prev.includes(l.id) ? prev.filter(id => id !== l.id) : [...prev, l.id])} className={`w-full flex justify-between p-3 mb-2 rounded-lg border ${trelloListIds.includes(l.id) ? 'bg-blue-500/20 border-blue-500' : 'bg-slate-800 border-slate-700'}`}>
+                                        <span>{l.name}</span>{trelloListIds.includes(l.id) && <CheckSquare className="w-4 h-4 text-blue-400" />}
+                                    </button>
+                                ))}
+                            </div>
+                            <button onClick={() => {setIsSelectingLists(false); fetchTrelloCards();}} className="w-full bg-emerald-600 text-white font-bold py-3 rounded-xl">Salvar</button>
+                          </>
+                      )}
+                  </div>
+              ) : (
+                  <div className="pb-20 animate-fade-in">
+                      <div className="flex justify-between items-center mb-4 px-1">
+                          <div className="flex items-center gap-2"><h2 className="text-xl font-bold text-slate-100">Trello</h2><span className="text-xs bg-slate-800 text-slate-400 px-2 py-1 rounded-full">{trelloCards.length}</span></div>
+                          <div className="flex gap-2"><button onClick={() => setIsSelectingLists(true)} className="p-2 text-slate-400"><Settings className="w-5 h-5" /></button><button onClick={fetchTrelloCards} className={`p-2 bg-blue-500/20 text-blue-400 rounded-full ${isLoadingTrello ? 'animate-spin' : ''}`}><RefreshCw className="w-4 h-4" /></button></div>
+                      </div>
+                      <div className="flex gap-2 overflow-x-auto pb-4 mb-2 px-1 scrollbar-hide">
+                          <button onClick={() => setActiveTrelloFilter('ALL')} className={`whitespace-nowrap px-3 py-1.5 rounded-lg text-xs font-bold ${activeTrelloFilter === 'ALL' ? 'bg-blue-600 text-white' : 'bg-slate-800 text-slate-400 border border-slate-700'}`}>Todos</button>
+                          {trelloListIds.map(id => <button key={id} onClick={() => setActiveTrelloFilter(id)} className={`whitespace-nowrap px-3 py-1.5 rounded-lg text-xs font-bold ${activeTrelloFilter === id ? 'bg-slate-200 text-slate-900' : 'bg-slate-800 text-slate-400 border border-slate-700'}`}>{availableLists.find(l => l.id === id)?.name || 'Lista'}</button>)}
+                      </div>
+                      {trelloCards.filter(c => activeTrelloFilter === 'ALL' || c.listId === activeTrelloFilter).map((c, i) => <TrelloCardItem key={c.id} card={c} listColorName={TRELLO_COLORS[trelloListIds.indexOf(c.listId) % TRELLO_COLORS.length]} />)}
+                  </div>
+              )}
+            </>
+        )}
+        {/* NOVA VIEW GOOGLE */}
+        {currentView === ViewState.GOOGLE && renderGoogleHub()}
       </main>
       
       <TabNav 
         currentView={currentView} 
         onChangeView={setCurrentView}
         badges={{
-          sites: offlineSitesCount > 0,
-          forms: unreadFormsCount,
-          gmail: unreadEmailsCount,
+          sites: sites.some(s => s.status === SiteStatus.OFFLINE),
+          forms: forms.filter(f => !f.isRead).length,
+          google: emails.filter(e => e.isUnread).length + events.filter(e => e.start.getDate() === new Date().getDate()).length,
           trello: trelloBadgeCount
         }}
       />
 
-      {selectedForm && (
-        <FormDetailsModal 
-          form={selectedForm}
-          siteName={sites.find(s => s.id === selectedForm.siteId)?.name || 'Site'}
-          onClose={handleCloseForm}
+      {selectedFormId && (
+        <FormDetailsModal form={forms.find(f => f.id === selectedFormId)!} siteName={sites.find(s => s.id === forms.find(f => f.id === selectedFormId)?.siteId)?.name || 'Site'} onClose={() => setSelectedFormId(null)} />
+      )}
+
+      {selectedEmailId && (
+        <EmailDetailsModal email={emails.find(e => e.id === selectedEmailId)!} onClose={() => setSelectedEmailId(null)} />
+      )}
+
+      {showSlackConfig && (
+        <SlackConfigModal 
+          currentUrl={slackWebhook} 
+          onSave={setSlackWebhook} 
+          onClose={() => setShowSlackConfig(false)} 
         />
       )}
 
-      {selectedEmail && (
-        <EmailDetailsModal 
-          email={selectedEmail}
-          onClose={() => setSelectedEmailId(null)}
-        />
+      {/* MODAL DE INSIGHT AI */}
+      {showInsightModal && (
+          <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 animate-fade-in">
+              <div className="absolute inset-0 bg-slate-900/80 backdrop-blur-sm" onClick={() => setShowInsightModal(false)}></div>
+              <div className="relative bg-slate-800 w-full max-w-md rounded-2xl shadow-2xl border border-slate-700 overflow-hidden min-h-[300px] flex flex-col">
+                  <div className="p-5 border-b border-slate-700 bg-gradient-to-r from-indigo-900 to-slate-800 flex justify-between items-center">
+                      <div className="flex items-center gap-2">
+                          <Sparkles className="w-5 h-5 text-yellow-300" />
+                          <h3 className="font-bold text-lg text-slate-100">Insight do Dia</h3>
+                      </div>
+                      <button onClick={() => setShowInsightModal(false)} className="text-slate-400 hover:text-white"><X className="w-6 h-6" /></button>
+                  </div>
+                  <div className="p-6 flex-1 flex items-center justify-center">
+                      {isLoadingInsight ? (
+                          <div className="text-center space-y-4">
+                              <div className="w-12 h-12 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin mx-auto"></div>
+                              <p className="text-slate-400 text-sm animate-pulse">Analisando seus dados...</p>
+                          </div>
+                      ) : (
+                          <div className="prose prose-invert prose-sm w-full">
+                             <div className="whitespace-pre-wrap text-slate-200 leading-relaxed">{insightResult}</div>
+                          </div>
+                      )}
+                  </div>
+                  {!isLoadingInsight && (
+                      <div className="p-4 border-t border-slate-700 bg-slate-800/50 flex justify-end">
+                          <button onClick={() => setShowInsightModal(false)} className="px-5 py-2 bg-slate-700 hover:bg-slate-600 text-slate-200 text-sm font-bold rounded-lg">Fechar</button>
+                      </div>
+                  )}
+              </div>
+          </div>
       )}
     </div>
   );

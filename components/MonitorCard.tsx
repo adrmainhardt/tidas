@@ -6,9 +6,10 @@ import { Globe, CheckCircle2, XCircle, AlertCircle, Clock, Zap, BarChart3 } from
 interface MonitorCardProps {
   site: SiteConfig;
   onRefresh: (id: string) => void;
+  minimal?: boolean;
 }
 
-const MonitorCard: React.FC<MonitorCardProps> = ({ site, onRefresh }) => {
+const MonitorCard: React.FC<MonitorCardProps> = ({ site, onRefresh, minimal = false }) => {
   const getStatusColor = (status: SiteStatus) => {
     switch (status) {
       case SiteStatus.ONLINE: return 'text-emerald-400';
@@ -75,18 +76,20 @@ const MonitorCard: React.FC<MonitorCardProps> = ({ site, onRefresh }) => {
         </div>
       )}
 
-      <div className="flex justify-between items-center border-t border-slate-700 pt-3 mt-1">
-        <div className="text-xs text-slate-500">
-          {site.lastChecked ? `Atualizado: ${site.lastChecked.toLocaleTimeString()}` : 'Nunca verificado'}
+      {!minimal && (
+        <div className="flex justify-between items-center border-t border-slate-700 pt-3 mt-1">
+          <div className="text-xs text-slate-500">
+            {site.lastChecked ? `Atualizado: ${site.lastChecked.toLocaleTimeString()}` : 'Nunca verificado'}
+          </div>
+          <button 
+            onClick={() => onRefresh(site.id)}
+            disabled={site.status === SiteStatus.CHECKING}
+            className="text-xs bg-slate-700 hover:bg-slate-600 text-slate-200 px-3 py-1.5 rounded-md transition-colors disabled:opacity-50"
+          >
+            Verificar Agora
+          </button>
         </div>
-        <button 
-          onClick={() => onRefresh(site.id)}
-          disabled={site.status === SiteStatus.CHECKING}
-          className="text-xs bg-slate-700 hover:bg-slate-600 text-slate-200 px-3 py-1.5 rounded-md transition-colors disabled:opacity-50"
-        >
-          Verificar Agora
-        </button>
-      </div>
+      )}
     </div>
   );
 };

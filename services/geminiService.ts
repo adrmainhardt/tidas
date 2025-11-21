@@ -1,3 +1,4 @@
+
 import { GoogleGenAI } from "@google/genai";
 import { FormSubmission } from "../types";
 
@@ -37,3 +38,49 @@ export const analyzeForms = async (forms: FormSubmission[]): Promise<string> => 
     return "Erro ao conectar com o assistente inteligente. Verifique sua chave API.";
   }
 };
+
+export const generateDashboardInsight = async (context: {
+    sites: string[],
+    forms: string[],
+    emails: string[],
+    events: string[],
+    trello: number
+}): Promise<string> => {
+    try {
+        const prompt = `
+        Você é um "Gerente Digital Pessoal" altamente eficiente. Crie um resumo "Insight" do dia para o usuário com base nestes dados:
+
+        STATUS DOS SITES:
+        ${context.sites.join('\n')}
+
+        MENSAGENS RECEBIDAS (Últimas):
+        ${context.forms.length > 0 ? context.forms.join('\n') : "Nenhuma mensagem nova."}
+
+        E-MAILS NÃO LIDOS (Top 5):
+        ${context.emails.length > 0 ? context.emails.join('\n') : "Caixa de entrada limpa."}
+
+        AGENDA (Hoje):
+        ${context.events.length > 0 ? context.events.join('\n') : "Sem eventos hoje."}
+
+        TRELLO:
+        ${context.trello} cartões novos ou atualizados recentemente.
+
+        INSTRUÇÃO:
+        Gere um texto curto (max 100 palavras) e direto.
+        1. Comece com um status geral (ex: "Tudo tranquilo" ou "Atenção necessária").
+        2. Destaque apenas o que for urgente (site offline, lead quente, reunião próxima).
+        3. Se tudo estiver calmo, dê um tom positivo.
+        Use emojis moderadamente. Não use saudações longas.
+        `;
+
+        const response = await ai.models.generateContent({
+            model: 'gemini-2.5-flash',
+            contents: prompt,
+            config: { thinkingConfig: { thinkingBudget: 0 } }
+        });
+
+        return response.text || "Sem insights no momento.";
+    } catch (error) {
+        return "Não foi possível gerar o insight.";
+    }
+}

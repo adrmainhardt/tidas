@@ -1,8 +1,9 @@
+
 <!DOCTYPE html>
 <html lang="pt-BR">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
     <meta name="theme-color" content="#0f172a">
     
     <!-- Web App Capabilities -->
@@ -60,22 +61,50 @@
               secondary: {
                 DEFAULT: '#38bdf8', // sky-400
               }
+            },
+            spacing: {
+              'safe-top': 'env(safe-area-inset-top, 20px)',
+              'safe-bottom': 'env(safe-area-inset-bottom, 20px)',
             }
           },
         },
       }
     </script>
     <style>
+      html, body {
+        margin: 0 !important;
+        padding: 0 !important;
+        height: 100%;
+        width: 100%;
+        overflow-x: hidden;
+      }
       body {
         background-color: #0f172a; /* brand-900 */
         color: #f8fafc; /* brand-50 */
         overscroll-behavior-y: none; /* Previne efeito elástico no mobile */
         -webkit-tap-highlight-color: transparent;
+        /* Remove qualquer borda padrão que possa causar a linha de 1px */
+        border: none !important;
       }
+      /* Utilitários de Safe Area */
+      .pt-safe-area {
+        padding-top: env(safe-area-inset-top, 24px);
+      }
+      .pb-safe-area {
+        padding-bottom: env(safe-area-inset-bottom, 20px);
+      }
+
       /* Hide scrollbar for clean UI */
       ::-webkit-scrollbar {
         width: 0px;
         background: transparent;
+      }
+      .scrollbar-hide::-webkit-scrollbar {
+        display: none;
+      }
+      .scrollbar-hide {
+        -ms-overflow-style: none;
+        scrollbar-width: none;
       }
       
       /* Animações */
@@ -85,11 +114,6 @@
       }
       .animate-fade-in {
         animation: fadeIn 0.4s ease-out forwards;
-      }
-      
-      /* Ajuste para safe area no iPhone X+ */
-      .pb-safe-area {
-        padding-bottom: env(safe-area-inset-bottom, 20px);
       }
     </style>
   <link rel="stylesheet" href="/index.css">

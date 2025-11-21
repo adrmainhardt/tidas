@@ -39,6 +39,19 @@ export interface EmailMessage {
   label: 'Primary' | 'Updates' | 'Promotions';
 }
 
+// Tipos do Google Calendar
+export interface CalendarEvent {
+  id: string;
+  title: string;
+  description?: string;
+  location?: string;
+  start: Date;
+  end: Date;
+  isAllDay: boolean;
+  link?: string;
+  status?: string; // 'confirmed', 'tentative', 'cancelled'
+}
+
 // Tipos do Trello
 export interface TrelloBoard {
   id: string;
@@ -65,6 +78,6 @@ export enum ViewState {
   DASHBOARD = 'DASHBOARD',
   SITES = 'SITES',
   FORMS = 'FORMS',
-  GMAIL = 'GMAIL',
+  GOOGLE = 'GOOGLE',
   TRELLO = 'TRELLO'
 }

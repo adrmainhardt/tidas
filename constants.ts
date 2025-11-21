@@ -6,8 +6,11 @@ import { SiteConfig, SiteStatus, FormSubmission } from './types';
 const SHARED_SECRET_KEY = '157918';
 
 // IMPORTANTE: Substitua pelo seu Client ID do Google Cloud Console
-// https://console.cloud.google.com/apis/credentials
 export const GOOGLE_CLIENT_ID = '914404526546-l7d1ke1tp2uu8nrfp9a3aj8eenlpvefs.apps.googleusercontent.com';
+
+// Chaves do Trello fornecidas
+export const TRELLO_API_KEY = '5bd12042605908ade0819114a512a3b4';
+export const TRELLO_TOKEN = 'ATTA939dc756fb21357676752f93741d20fb7450071699ab6d82ce75e271c5e90f1017EA19D4';
 
 export const DEFAULT_SITES: SiteConfig[] = [
   {

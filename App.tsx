@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { DEFAULT_SITES, MOCK_FORMS, GOOGLE_CLIENT_ID } from './constants';
+import { DEFAULT_SITES, MOCK_FORMS, GOOGLE_CLIENT_ID, TRELLO_API_KEY, TRELLO_TOKEN } from './constants';
 import { SiteConfig, SiteStatus, ViewState, FormSubmission, EmailMessage, TrelloBoard, TrelloList, TrelloCard, CalendarEvent, WeatherData } from './types';
 import MonitorCard from './components/MonitorCard';
 import InboxItem from './components/InboxItem';
@@ -111,7 +111,7 @@ const App: React.FC = () => {
   const [weatherPermissionDenied, setWeatherPermissionDenied] = useState(false);
 
   // Google Services States (Gmail + Calendar)
-  const [googleToken, setGoogleToken] = usePersistedState<string | null>('monitor_google_token', null);
+  const [googleToken, setGoogleToken] = usePersistedState<string | null>('monitor_google_token_v2', null);
   const [emails, setEmails] = useState<EmailMessage[]>([]);
   const [events, setEvents] = useState<CalendarEvent[]>([]);
   const [isLoadingGoogle, setIsLoadingGoogle] = useState(false);
@@ -134,12 +134,13 @@ const App: React.FC = () => {
   const [isLoadingInsight, setIsLoadingInsight] = useState(false);
   const [showInsightModal, setShowInsightModal] = useState(false);
 
-  // Trello States
-  const [trelloKey, setTrelloKey] = usePersistedState<string>('monitor_trello_key', '');
-  const [trelloToken, setTrelloToken] = usePersistedState<string>('monitor_trello_token', '');
-  const [trelloBoardId, setTrelloBoardId] = usePersistedState<string>('monitor_trello_board', '');
-  const [trelloListIds, setTrelloListIds] = usePersistedState<string[]>('monitor_trello_lists', []);
-  const [trelloLastView, setTrelloLastView] = usePersistedState<string>('monitor_trello_last_view', new Date(0).toISOString());
+  // Trello States - ATUALIZADO PARA V3 PARA FORÇAR RECARGA DAS CHAVES
+  const [trelloKey, setTrelloKey] = usePersistedState<string>('monitor_trello_key_v3', TRELLO_API_KEY);
+  const [trelloToken, setTrelloToken] = usePersistedState<string>('monitor_trello_token_v3', TRELLO_TOKEN);
+  const [trelloBoardId, setTrelloBoardId] = usePersistedState<string>('monitor_trello_board_v3', '');
+  const [trelloListIds, setTrelloListIds] = usePersistedState<string[]>('monitor_trello_lists_v3', []);
+  const [trelloLastView, setTrelloLastView] = usePersistedState<string>('monitor_trello_last_view_v3', new Date(0).toISOString());
+  
   const [trelloBadgeCount, setTrelloBadgeCount] = useState(0);
   const [trelloCards, setTrelloCards] = useState<TrelloCard[]>([]);
   const [availableBoards, setAvailableBoards] = useState<TrelloBoard[]>([]);
@@ -163,9 +164,13 @@ const App: React.FC = () => {
   useEffect(() => { readIdsRef.current = readFormIds || []; }, [readFormIds]);
   useEffect(() => { sitesRef.current = sites; }, [sites]);
 
+  // Se não tiver listas selecionadas mas tiver chaves, força seleção
   useEffect(() => {
-    if (trelloListIds.length === 0) setIsSelectingLists(true);
-  }, [trelloListIds.length]);
+    if (trelloKey && trelloToken && trelloListIds.length === 0) {
+        setIsSelectingLists(true);
+        loadTrelloBoards();
+    }
+  }, [trelloKey, trelloToken, trelloListIds.length]);
 
   useEffect(() => {
     if (currentView === ViewState.TRELLO) {
@@ -745,13 +750,19 @@ const App: React.FC = () => {
 
   const renderGoogleHub = () => {
     const unreadEmails = emails.filter(e => e.isUnread).length;
-    
     const now = new Date();
+    const todayEventsCount = events.filter(e => isSameDay(e.start, now)).length;
+
+    // Função para agrupar eventos por data string
+    const groupedEvents: { [key: string]: CalendarEvent[] } = {};
+    events.forEach(evt => {
+        const dateKey = evt.start.toDateString();
+        if (!groupedEvents[dateKey]) groupedEvents[dateKey] = [];
+        groupedEvents[dateKey].push(evt);
+    });
     
-    // Agrupamento de Eventos
-    const todayEvents = events.filter(e => isSameDay(e.start, now));
-    const tomorrowEvents = events.filter(e => isTomorrow(e.start, now));
-    const monthEvents = events.filter(e => !isSameDay(e.start, now) && !isTomorrow(e.start, now));
+    // Ordenar chaves de data
+    const sortedDateKeys = Object.keys(groupedEvents).sort((a, b) => new Date(a).getTime() - new Date(b).getTime());
 
     return (
         <div className="pb-20 animate-fade-in flex flex-col h-full">
@@ -780,7 +791,7 @@ const App: React.FC = () => {
                         className={`flex-1 py-2 rounded-lg text-xs font-bold flex justify-center items-center gap-2 transition-colors ${googleSubTab === 'calendar' ? 'bg-slate-700 text-white shadow-sm' : 'text-slate-400 hover:text-slate-300'}`}
                      >
                         <CalendarDays className="w-3.5 h-3.5" /> Agenda
-                        {todayEvents.length > 0 && <span className="bg-blue-500 text-white text-[9px] px-1.5 py-0.5 rounded-full">{todayEvents.length}</span>}
+                        {todayEventsCount > 0 && <span className="bg-blue-500 text-white text-[9px] px-1.5 py-0.5 rounded-full">{todayEventsCount}</span>}
                      </button>
                  </div>
              </div>
@@ -797,42 +808,50 @@ const App: React.FC = () => {
 
              {googleSubTab === 'calendar' && (
                 !googleToken ? renderGoogleLogin('Gmail e Agenda') : (
-                  <div>
+                  <div className="space-y-6">
                        {events.length === 0 && !isLoadingGoogle && (
-                           <div className="mb-6 p-4 bg-slate-800/50 rounded-xl text-center border border-slate-700/50">
-                               <p className="text-sm text-slate-400">Nenhum evento encontrado para este mês.</p>
+                           <div className="mb-6 p-6 bg-slate-800/50 rounded-xl text-center border border-slate-700/50 flex flex-col items-center">
+                               <CalendarDays className="w-10 h-10 text-slate-600 mb-3" />
+                               <p className="text-sm text-slate-400">Sua agenda está livre neste mês.</p>
+                               <button onClick={() => fetchGoogleData(googleToken)} className="mt-4 text-xs text-blue-400 hover:underline">Tentar novamente</button>
                            </div>
                        )}
 
-                       {/* Eventos de Hoje */}
-                       {todayEvents.length > 0 && (
-                         <div className="mb-6">
-                           <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3 px-1 flex items-center gap-2">
-                              <div className="w-2 h-2 rounded-full bg-blue-500"></div> Hoje
-                           </h3>
-                           {todayEvents.map(evt => <CalendarEventItem key={evt.id} event={evt} />)}
-                         </div>
-                       )}
+                       {sortedDateKeys.map(dateKey => {
+                           const dateObj = new Date(dateKey);
+                           const isToday = isSameDay(dateObj, now);
+                           const isTmrw = isTomorrow(dateObj, now);
+                           
+                           let label = dateObj.toLocaleDateString('pt-BR', { day: 'numeric', month: 'long', weekday: 'long' });
+                           let badgeColor = 'bg-slate-700';
+                           
+                           if (isToday) {
+                               label = "Hoje";
+                               badgeColor = "bg-blue-600";
+                           } else if (isTmrw) {
+                               label = "Amanhã";
+                               badgeColor = "bg-indigo-600";
+                           }
 
-                       {/* Eventos de Amanhã */}
-                       {tomorrowEvents.length > 0 && (
-                         <div className="mb-6">
-                           <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3 px-1 flex items-center gap-2">
-                              <div className="w-2 h-2 rounded-full bg-indigo-500"></div> Amanhã
-                           </h3>
-                           {tomorrowEvents.map(evt => <CalendarEventItem key={evt.id} event={evt} />)}
-                         </div>
-                       )}
-
-                       {/* Próximos Eventos (Mês) */}
-                       {monthEvents.length > 0 && (
-                         <div className="mb-6">
-                            <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3 px-1 mt-4 border-t border-slate-700/50 pt-4">
-                               Este Mês
-                            </h3>
-                            {monthEvents.map(evt => <CalendarEventItem key={evt.id} event={evt} />)}
-                         </div>
-                       )}
+                           return (
+                               <div key={dateKey}>
+                                   <div className="flex items-center gap-3 mb-3 px-1">
+                                       <span className={`text-[10px] font-bold text-white px-2 py-0.5 rounded-md uppercase tracking-wide ${badgeColor}`}>
+                                           {label === "Hoje" || label === "Amanhã" ? label : dateObj.toLocaleDateString('pt-BR', { day: 'numeric', month: 'short' }).toUpperCase()}
+                                       </span>
+                                       {label !== "Hoje" && label !== "Amanhã" && (
+                                           <span className="text-xs text-slate-500 capitalize">
+                                               {dateObj.toLocaleDateString('pt-BR', { weekday: 'long' })}
+                                           </span>
+                                       )}
+                                       <div className="h-px bg-slate-800 flex-1"></div>
+                                   </div>
+                                   {groupedEvents[dateKey].map(evt => (
+                                       <CalendarEventItem key={evt.id} event={evt} />
+                                   ))}
+                               </div>
+                           );
+                       })}
                   </div>
                 )
              )}

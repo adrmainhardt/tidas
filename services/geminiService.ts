@@ -2,7 +2,7 @@
 import { GoogleGenAI } from "@google/genai";
 import { FormSubmission } from "../types";
 
-// Safe key retrieval to prevent crash if process is undefined
+// Recuperação segura da chave
 const getApiKey = () => {
   try {
     return (typeof process !== 'undefined' && process.env && process.env.API_KEY) ? process.env.API_KEY : '';
@@ -20,29 +20,21 @@ export const analyzeForms = async (forms: FormSubmission[]): Promise<string> => 
     ).join('\n');
 
     const prompt = `
-      Você é um assistente inteligente de gestão de sites. 
-      Analise as seguintes submissões de formulário de contato recentes dos sites monitorados:
-
+      Analise estas mensagens de formulário de contato:
       ${formSummary}
 
-      Por favor, forneça um resumo executivo curto em português. 
-      1. Identifique qual mensagem parece ser a oportunidade de negócio mais urgente ou importante (Lead Quente).
-      2. Resuma o sentimento geral das mensagens.
-      3. Sugira uma ação rápida para o proprietário do site.
-      
-      Use formatação Markdown simples.
+      Resuma a oportunidade mais urgente e o sentimento geral em português.
     `;
 
     const response = await ai.models.generateContent({
       model: 'gemini-2.5-flash',
       contents: prompt,
-      // Removido thinkingConfig para evitar erros de compatibilidade
     });
 
-    return response.text || "Não foi possível gerar a análise no momento.";
+    return response.text || "Análise indisponível.";
   } catch (error) {
-    console.error("Erro ao analisar formulários com Gemini:", error);
-    return "Erro ao conectar com o assistente inteligente.";
+    console.error("Erro Gemini Forms:", error);
+    return "Erro na IA.";
   }
 };
 
@@ -54,41 +46,42 @@ export const generateDashboardInsight = async (context: {
     trello: number
 }): Promise<string> => {
     try {
+        const siteText = context.sites?.length ? context.sites.join(', ') : "Nenhum site.";
+        const formText = context.forms?.length ? context.forms.join('; ') : "Sem mensagens.";
+        const emailText = context.emails?.length ? context.emails.join('; ') : "Sem emails importantes.";
+        const eventText = context.events?.length ? context.events.join('; ') : "Agenda livre.";
+        const trelloText = `${context.trello || 0} cartões.`;
+
         const prompt = `
-        Você é um "Gerente Digital Pessoal" altamente eficiente. Crie um resumo "Insight" do dia para o usuário com base nestes dados:
+        Você é um assistente pessoal. Gere um "Insight do Dia" (máx 3 frases) com base nisto:
+        
+        SITES: ${siteText}
+        MSGS: ${formText}
+        EMAILS: ${emailText}
+        AGENDA: ${eventText}
+        TRELLO: ${trelloText}
 
-        STATUS DOS SITES:
-        ${context.sites.join('\n')}
-
-        MENSAGENS RECEBIDAS (Últimas):
-        ${context.forms.length > 0 ? context.forms.join('\n') : "Nenhuma mensagem nova."}
-
-        E-MAILS NÃO LIDOS (Top 5):
-        ${context.emails.length > 0 ? context.emails.join('\n') : "Caixa de entrada limpa."}
-
-        AGENDA (Hoje e Próximos):
-        ${context.events.length > 0 ? context.events.join('\n') : "Agenda livre."}
-
-        TRELLO:
-        ${context.trello} cartões novos ou atualizados recentemente.
-
-        INSTRUÇÃO:
-        Gere um texto curto (max 100 palavras) e direto em português do Brasil.
-        1. Comece com um status geral (ex: "Tudo tranquilo" ou "Atenção necessária").
-        2. Destaque apenas o que for urgente (site offline, lead quente, reunião próxima).
-        3. Se tudo estiver calmo, dê um tom positivo.
-        Use emojis moderadamente. Não use saudações longas.
+        Destaque APENAS o que é crítico/urgente. Se nada urgente, frase motivacional curta.
         `;
 
         const response = await ai.models.generateContent({
             model: 'gemini-2.5-flash',
             contents: prompt,
-            // Configuração simplificada para garantir execução
         });
 
-        return response.text || "Sem insights no momento.";
-    } catch (error) {
-        console.error("Erro detalhado insight:", error); // Log detalhado para debug
-        return "Não foi possível gerar o insight no momento. Verifique o console.";
+        if (!response.text) {
+            return "A IA retornou uma resposta vazia.";
+        }
+
+        return response.text;
+    } catch (error: any) {
+        console.error("Erro detalhado insight:", error);
+        
+        // Retorna mensagem de erro amigável baseada no erro real
+        if (error.toString().includes("API_KEY")) return "Erro: Chave API inválida ou não configurada.";
+        if (error.toString().includes("429")) return "Erro: Muitos pedidos (Cota excedida).";
+        if (error.toString().includes("fetch")) return "Erro de conexão com a IA.";
+        
+        return `Não foi possível gerar o insight: ${error.message || 'Erro desconhecido'}`;
     }
 }

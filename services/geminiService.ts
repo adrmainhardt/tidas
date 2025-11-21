@@ -2,7 +2,16 @@
 import { GoogleGenAI } from "@google/genai";
 import { FormSubmission } from "../types";
 
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+// Safe key retrieval to prevent crash if process is undefined
+const getApiKey = () => {
+  try {
+    return (typeof process !== 'undefined' && process.env && process.env.API_KEY) ? process.env.API_KEY : '';
+  } catch (e) {
+    return '';
+  }
+};
+
+const ai = new GoogleGenAI({ apiKey: getApiKey() });
 
 export const analyzeForms = async (forms: FormSubmission[]): Promise<string> => {
   try {
@@ -35,7 +44,7 @@ export const analyzeForms = async (forms: FormSubmission[]): Promise<string> => 
     return response.text || "Não foi possível gerar a análise no momento.";
   } catch (error) {
     console.error("Erro ao analisar formulários com Gemini:", error);
-    return "Erro ao conectar com o assistente inteligente. Verifique sua chave API.";
+    return "Erro ao conectar com o assistente inteligente.";
   }
 };
 
@@ -81,6 +90,7 @@ export const generateDashboardInsight = async (context: {
 
         return response.text || "Sem insights no momento.";
     } catch (error) {
-        return "Não foi possível gerar o insight.";
+        console.warn("Erro insight:", error);
+        return "Não foi possível gerar o insight no momento.";
     }
 }

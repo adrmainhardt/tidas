@@ -24,6 +24,11 @@
     <!-- Google Identity Services para Login com Gmail -->
     <script src="https://accounts.google.com/gsi/client" async defer></script>
     
+    <!-- CRITICAL FIX: Polyfill para process.env para evitar tela branca -->
+    <script>
+      window.process = window.process || { env: {} };
+    </script>
+
     <script type="importmap">
     {
       "imports": {

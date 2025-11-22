@@ -613,9 +613,9 @@ const App: React.FC = () => {
            </button>
         )}
 
-        {/* Grid de Serviços */}
+        {/* Grid de Serviços - ATUALIZADO 2x2 */}
         <div className="grid grid-cols-2 gap-4">
-          {/* Forms & Sites Combined Entry */}
+          {/* Row 1: Forms & Trello */}
           <div onClick={() => setCurrentView(ViewState.WEBSITES)} className="bg-slate-800 p-4 rounded-2xl border border-slate-700 shadow-sm cursor-pointer active:scale-95 transition-all">
             <div className="flex items-center gap-2 mb-2 text-brand-400"><Globe className="w-4 h-4" /><span className="text-xs font-semibold">SITES & FORMS</span></div>
             <div className="flex justify-between items-end">
@@ -623,23 +623,25 @@ const App: React.FC = () => {
                {sites.some(s => s.status === SiteStatus.OFFLINE) && <AlertTriangle className="w-5 h-5 text-rose-500 animate-pulse" />}
             </div>
           </div>
+          
           <div onClick={() => setCurrentView(ViewState.TRELLO)} className="bg-slate-800 p-4 rounded-2xl border border-slate-700 shadow-sm cursor-pointer active:scale-95 transition-all">
              <div className="flex items-center gap-2 mb-2 text-blue-400"><Trello className="w-4 h-4" /><span className="text-xs font-semibold">TRELLO</span></div>
-             <div className="text-2xl font-bold text-slate-100">{trelloBadgeCount > 0 ? trelloBadgeCount : <Check className="w-6 h-6 text-emerald-500" />}</div>
+             <div className="text-2xl font-bold text-slate-100">{trelloCards.length}</div>
           </div>
-          {/* Google Card Unificado */}
-          <div onClick={() => setCurrentView(ViewState.GOOGLE)} className="col-span-2 bg-slate-800 p-4 rounded-2xl border border-slate-700 shadow-sm cursor-pointer active:scale-95 transition-all flex justify-between items-center">
-                <div className="flex flex-col gap-1">
-                     <div className="flex items-center gap-2 text-red-400"><Mail className="w-4 h-4" /><span className="text-xs font-semibold">GOOGLE</span></div>
-                     <div className="text-sm text-slate-400">
-                         {googleToken ? (
-                             <>
-                                 <span className="font-bold text-slate-200">{emails.filter(e => e.isUnread).length}</span> emails • <span className="font-bold text-slate-200">{todayEventsCount}</span> eventos hoje
-                             </>
-                         ) : 'Conectar'}
-                     </div>
-                </div>
-                {!googleToken && <LogIn className="w-5 h-5 text-slate-500" />}
+
+          {/* Row 2: E-mail & Calendar (Separated) */}
+          <div onClick={() => {setCurrentView(ViewState.GOOGLE); setGoogleSubTab('mail');}} className="bg-slate-800 p-4 rounded-2xl border border-slate-700 shadow-sm cursor-pointer active:scale-95 transition-all">
+             <div className="flex items-center gap-2 mb-2 text-red-400"><Mail className="w-4 h-4" /><span className="text-xs font-semibold">E-MAIL</span></div>
+             <div className="text-2xl font-bold text-slate-100">
+                 {googleToken ? emails.filter(e => e.isUnread).length : <LogIn className="w-5 h-5 text-slate-500" />}
+             </div>
+          </div>
+
+          <div onClick={() => {setCurrentView(ViewState.GOOGLE); setGoogleSubTab('calendar');}} className="bg-slate-800 p-4 rounded-2xl border border-slate-700 shadow-sm cursor-pointer active:scale-95 transition-all">
+             <div className="flex items-center gap-2 mb-2 text-indigo-400"><CalendarDays className="w-4 h-4" /><span className="text-xs font-semibold">AGENDA</span></div>
+             <div className="text-2xl font-bold text-slate-100">
+                 {googleToken ? todayEventsCount : <LogIn className="w-5 h-5 text-slate-500" />}
+             </div>
           </div>
         </div>
 
@@ -798,7 +800,7 @@ const App: React.FC = () => {
 
              {/* Content Area */}
              {googleSubTab === 'mail' && (
-                !googleToken ? renderGoogleLogin('Gmail e Agenda') : (
+                !googleToken ? renderGoogleLogin('Gmail') : (
                   <div>
                       {emails.length === 0 && !isLoadingGoogle && <div className="text-center py-10 text-slate-500"><Check className="w-8 h-8 text-emerald-500/50 mx-auto mb-2"/><p>Caixa limpa!</p></div>}
                       {emails.map(email => <EmailItem key={email.id} email={email} onSelect={() => {setSelectedEmailId(email.id); setEmails(prev => prev.map(e => e.id === email.id ? { ...e, isUnread: false } : e));}} onDismiss={() => setEmails(prev => prev.filter(e => e.id !== email.id))} />)}
@@ -807,12 +809,12 @@ const App: React.FC = () => {
              )}
 
              {googleSubTab === 'calendar' && (
-                !googleToken ? renderGoogleLogin('Gmail e Agenda') : (
+                !googleToken ? renderGoogleLogin('Agenda') : (
                   <div className="space-y-6">
                        {events.length === 0 && !isLoadingGoogle && (
                            <div className="mb-6 p-6 bg-slate-800/50 rounded-xl text-center border border-slate-700/50 flex flex-col items-center">
                                <CalendarDays className="w-10 h-10 text-slate-600 mb-3" />
-                               <p className="text-sm text-slate-400">Sua agenda está livre neste mês.</p>
+                               <p className="text-sm text-slate-400">Sua agenda está livre pelos próximos dias.</p>
                                <button onClick={() => fetchGoogleData(googleToken)} className="mt-4 text-xs text-blue-400 hover:underline">Tentar novamente</button>
                            </div>
                        )}

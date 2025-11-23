@@ -1,3 +1,4 @@
+
 import { GoogleGenAI } from "@google/genai";
 import { FormSubmission } from "../types";
 
@@ -39,19 +40,20 @@ export const generateDashboardInsight = async (context: {
 }): Promise<string> => {
     try {
         if (!process.env.API_KEY) {
-            throw new Error("API_KEY_MISSING");
+            throw new Error("API Key não encontrada no ambiente.");
         }
 
         const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
-        const siteText = context.sites?.length ? context.sites.join(', ') : "Nenhum site.";
-        const formText = context.forms?.length ? context.forms.join('; ') : "Sem mensagens.";
-        const emailText = context.emails?.length ? context.emails.join('; ') : "Sem emails importantes.";
+        const siteText = context.sites?.length ? context.sites.join(', ') : "Nenhum site monitorado.";
+        const formText = context.forms?.length ? context.forms.join('; ') : "Nenhuma mensagem nova.";
+        const emailText = context.emails?.length ? context.emails.join('; ') : "Sem emails não lidos.";
         const eventText = context.events?.length ? context.events.join('; ') : "Agenda livre.";
-        const trelloText = `${context.trello || 0} cartões.`;
+        const trelloText = `${context.trello || 0} cartões pendentes.`;
 
         const prompt = `
-        Você é um assistente pessoal executivo. Gere um "Insight do Dia" curto e direto (máx 3 frases) com base nisto:
+        Atue como um assistente pessoal executivo eficiente.
+        Gere um "Resumo do Dia" curto (máximo 2 linhas) baseado nestes dados:
         
         SITES: ${siteText}
         MSGS: ${formText}
@@ -59,7 +61,7 @@ export const generateDashboardInsight = async (context: {
         AGENDA: ${eventText}
         TRELLO: ${trelloText}
 
-        Priorize o que for urgente (site offline, reunião próxima). Se tudo estiver calmo, dê um resumo motivacional breve.
+        Se houver problemas (sites offline), priorize isso. Caso contrário, dê um status geral positivo.
         `;
 
         const response = await ai.models.generateContent({
@@ -67,9 +69,21 @@ export const generateDashboardInsight = async (context: {
             contents: prompt,
         });
 
-        return response.text || "A IA retornou uma resposta vazia.";
+        if (!response.text) {
+            throw new Error("Resposta vazia da IA.");
+        }
+
+        return response.text;
     } catch (error: any) {
-        console.error("Erro detalhado insight:", error);
-        return "Insight indisponível no momento.";
+        console.error("Erro detalhado Insight:", error);
+        
+        let msg = "Insight indisponível.";
+        if (error.message.includes("API Key")) msg = "Erro: Chave API ausente.";
+        else if (error.message.includes("Quota")) msg = "Cota da IA excedida.";
+        else if (error.message.includes("fetch")) msg = "Erro de conexão.";
+        else if (error.toString().includes("403")) msg = "Acesso negado (403).";
+        
+        // Retorna a mensagem de erro para ser exibida na UI
+        throw new Error(msg);
     }
 }

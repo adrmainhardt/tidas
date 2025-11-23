@@ -1,5 +1,6 @@
+
 import React, { useEffect, useState } from 'react';
-import { X, Settings, Eye, Bell, MapPin, ToggleLeft, ToggleRight, LayoutDashboard } from 'lucide-react';
+import { X, Settings, Eye, Bell, MapPin, ToggleLeft, ToggleRight, LayoutDashboard, Calendar, Link } from 'lucide-react';
 import { DashboardPrefs } from '../types';
 
 interface ConfigModalProps {
@@ -11,29 +12,38 @@ interface ConfigModalProps {
   onToggleNotifications: () => void;
   locationEnabled: boolean;
   onToggleLocation: () => void;
+  // Handler extra para agenda
+  onUpdateCalendar: (mode: 'api' | 'embed', url?: string) => void;
 }
 
 const ConfigModal: React.FC<ConfigModalProps> = ({ 
     isOpen, onClose, 
     preferences, onTogglePreference, 
     notificationsEnabled, onToggleNotifications,
-    locationEnabled, onToggleLocation
+    locationEnabled, onToggleLocation,
+    onUpdateCalendar
 }) => {
   
   const [isVisible, setIsVisible] = useState(false);
+  const [calUrl, setCalUrl] = useState(preferences.calendarEmbedUrl || '');
 
   useEffect(() => {
     if (isOpen) {
       setIsVisible(true);
       document.body.style.overflow = 'hidden';
+      setCalUrl(preferences.calendarEmbedUrl || '');
     } else {
       const timer = setTimeout(() => setIsVisible(false), 300);
       document.body.style.overflow = 'unset';
       return () => clearTimeout(timer);
     }
-  }, [isOpen]);
+  }, [isOpen, preferences.calendarEmbedUrl]);
 
   if (!isVisible && !isOpen) return null;
+
+  const handleSaveCalendar = () => {
+    onUpdateCalendar(preferences.calendarMode, calUrl);
+  };
 
   const ToggleItem = ({ label, icon: Icon, checked, onChange, description }: any) => (
     <div className="flex items-center justify-between p-4 bg-slate-900/50 rounded-xl border border-slate-800">
@@ -61,7 +71,7 @@ const ConfigModal: React.FC<ConfigModalProps> = ({
       />
 
       <div 
-        className={`relative w-[85%] max-w-[360px] h-full bg-slate-800 border-l border-slate-700 shadow-2xl flex flex-col transform transition-transform duration-300 ease-out pt-safe-area ${isOpen ? 'translate-x-0' : 'translate-x-full'}`}
+        className={`relative w-[90%] max-w-[380px] h-full bg-slate-800 border-l border-slate-700 shadow-2xl flex flex-col transform transition-transform duration-300 ease-out pt-safe-area ${isOpen ? 'translate-x-0' : 'translate-x-full'}`}
       >
         <div className="p-5 border-b border-slate-700 bg-slate-800 flex justify-between items-center">
             <div className="flex items-center gap-2">
@@ -76,7 +86,7 @@ const ConfigModal: React.FC<ConfigModalProps> = ({
         <div className="flex-1 overflow-y-auto p-5 space-y-6">
             
             <div className="space-y-3">
-                <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider px-1">Tela Inicial</h3>
+                <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider px-1">Visualização</h3>
                 <ToggleItem 
                     label="Sites & Forms" 
                     icon={LayoutDashboard} 
@@ -104,6 +114,51 @@ const ConfigModal: React.FC<ConfigModalProps> = ({
             </div>
 
             <div className="space-y-3">
+                <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider px-1">Agenda Google</h3>
+                <div className="bg-slate-900/50 p-4 rounded-xl border border-slate-800 space-y-3">
+                    <div className="flex items-center gap-2 mb-2">
+                        <Calendar className="w-4 h-4 text-indigo-400" />
+                        <span className="text-sm font-bold text-slate-200">Modo de Exibição</span>
+                    </div>
+                    <div className="flex bg-slate-800 p-1 rounded-lg">
+                        <button 
+                            onClick={() => onUpdateCalendar('api', calUrl)}
+                            className={`flex-1 py-1.5 text-xs font-bold rounded-md transition-colors ${preferences.calendarMode === 'api' ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-400 hover:text-slate-200'}`}
+                        >
+                            API (Login)
+                        </button>
+                        <button 
+                            onClick={() => onUpdateCalendar('embed', calUrl)}
+                            className={`flex-1 py-1.5 text-xs font-bold rounded-md transition-colors ${preferences.calendarMode === 'embed' ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-400 hover:text-slate-200'}`}
+                        >
+                            Incorporado
+                        </button>
+                    </div>
+
+                    {preferences.calendarMode === 'embed' && (
+                        <div className="pt-2 border-t border-slate-700/50">
+                            <label className="text-[10px] text-slate-400 block mb-1">URL Pública ou Incorporada (src)</label>
+                            <div className="flex gap-2">
+                                <input 
+                                    type="text" 
+                                    value={calUrl}
+                                    onChange={(e) => setCalUrl(e.target.value)}
+                                    placeholder="https://calendar.google.com/..."
+                                    className="flex-1 bg-slate-800 border border-slate-700 rounded p-2 text-xs text-slate-200 focus:border-indigo-500 outline-none"
+                                />
+                                <button onClick={handleSaveCalendar} className="p-2 bg-slate-700 hover:bg-slate-600 text-white rounded">
+                                    <Link className="w-4 h-4" />
+                                </button>
+                            </div>
+                            <p className="text-[9px] text-slate-500 mt-1 italic">
+                                Vá em Configurações do Google Agenda {'>'} Integrar Agenda {'>'} Copie a URL
+                            </p>
+                        </div>
+                    )}
+                </div>
+            </div>
+
+            <div className="space-y-3">
                 <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider px-1">Sistema</h3>
                 <ToggleItem 
                     label="Notificações" 
@@ -124,7 +179,7 @@ const ConfigModal: React.FC<ConfigModalProps> = ({
         </div>
         
         <div className="p-4 border-t border-slate-700 bg-slate-800/50 text-center pb-safe-area">
-            <button onClick={onClose} className="w-full py-3 bg-blue-600 text-white font-bold rounded-xl shadow-lg shadow-blue-900/20 active:scale-95 transition-transform">
+            <button onClick={() => { handleSaveCalendar(); onClose(); }} className="w-full py-3 bg-blue-600 text-white font-bold rounded-xl shadow-lg shadow-blue-900/20 active:scale-95 transition-transform">
                 Salvar e Fechar
             </button>
         </div>

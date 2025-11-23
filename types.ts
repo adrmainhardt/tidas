@@ -1,3 +1,4 @@
+
 export enum SiteStatus {
   ONLINE = 'ONLINE',
   OFFLINE = 'OFFLINE',
@@ -110,6 +111,9 @@ export interface DashboardPrefs {
   showTrello: boolean;
   showGoogle: boolean;
   showWeather: boolean;
+  // Configuração de Agenda
+  calendarMode: 'api' | 'embed';
+  calendarEmbedUrl?: string;
 }
 
 export enum ViewState {

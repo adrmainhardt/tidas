@@ -1,20 +1,12 @@
-
 import { GoogleGenAI } from "@google/genai";
 import { FormSubmission } from "../types";
 
-// Recuperação segura da chave
-const getApiKey = () => {
-  try {
-    return (typeof process !== 'undefined' && process.env && process.env.API_KEY) ? process.env.API_KEY : '';
-  } catch (e) {
-    return '';
-  }
-};
-
-const ai = new GoogleGenAI({ apiKey: getApiKey() });
-
 export const analyzeForms = async (forms: FormSubmission[]): Promise<string> => {
   try {
+    if (!process.env.API_KEY) return "Chave de API não configurada.";
+
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    
     const formSummary = forms.map(f => 
       `- De: ${f.senderName} (${f.senderEmail}) | Mensagem: "${f.message}" | Data: ${f.timestamp.toLocaleString()}`
     ).join('\n');
@@ -46,6 +38,12 @@ export const generateDashboardInsight = async (context: {
     trello: number
 }): Promise<string> => {
     try {
+        if (!process.env.API_KEY) {
+            throw new Error("API_KEY_MISSING");
+        }
+
+        const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+
         const siteText = context.sites?.length ? context.sites.join(', ') : "Nenhum site.";
         const formText = context.forms?.length ? context.forms.join('; ') : "Sem mensagens.";
         const emailText = context.emails?.length ? context.emails.join('; ') : "Sem emails importantes.";
@@ -53,7 +51,7 @@ export const generateDashboardInsight = async (context: {
         const trelloText = `${context.trello || 0} cartões.`;
 
         const prompt = `
-        Você é um assistente pessoal. Gere um "Insight do Dia" (máx 3 frases) com base nisto:
+        Você é um assistente pessoal executivo. Gere um "Insight do Dia" curto e direto (máx 3 frases) com base nisto:
         
         SITES: ${siteText}
         MSGS: ${formText}
@@ -61,7 +59,7 @@ export const generateDashboardInsight = async (context: {
         AGENDA: ${eventText}
         TRELLO: ${trelloText}
 
-        Destaque APENAS o que é crítico/urgente. Se nada urgente, frase motivacional curta.
+        Priorize o que for urgente (site offline, reunião próxima). Se tudo estiver calmo, dê um resumo motivacional breve.
         `;
 
         const response = await ai.models.generateContent({
@@ -69,19 +67,9 @@ export const generateDashboardInsight = async (context: {
             contents: prompt,
         });
 
-        if (!response.text) {
-            return "A IA retornou uma resposta vazia.";
-        }
-
-        return response.text;
+        return response.text || "A IA retornou uma resposta vazia.";
     } catch (error: any) {
         console.error("Erro detalhado insight:", error);
-        
-        // Retorna mensagem de erro amigável baseada no erro real
-        if (error.toString().includes("API_KEY")) return "Erro: Chave API inválida ou não configurada.";
-        if (error.toString().includes("429")) return "Erro: Muitos pedidos (Cota excedida).";
-        if (error.toString().includes("fetch")) return "Erro de conexão com a IA.";
-        
-        return `Não foi possível gerar o insight: ${error.message || 'Erro desconhecido'}`;
+        return "Insight indisponível no momento.";
     }
 }

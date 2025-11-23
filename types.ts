@@ -1,6 +1,3 @@
-
-
-
 export enum SiteStatus {
   ONLINE = 'ONLINE',
   OFFLINE = 'OFFLINE',
@@ -105,6 +102,14 @@ export interface WeatherData {
     code: number;
   };
   locationName?: string;
+}
+
+// Preferências do Dashboard
+export interface DashboardPrefs {
+  showSites: boolean;
+  showTrello: boolean;
+  showGoogle: boolean;
+  showWeather: boolean;
 }
 
 export enum ViewState {

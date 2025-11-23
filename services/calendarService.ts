@@ -3,79 +3,32 @@ import { CalendarEvent } from "../types";
 
 const CALENDAR_API_BASE = 'https://www.googleapis.com/calendar/v3';
 
-interface CalendarListEntry {
-  id: string;
-  summary: string;
-  primary?: boolean;
-}
-
 export const fetchCalendarEvents = async (accessToken: string): Promise<CalendarEvent[]> => {
   try {
     const now = new Date();
-    // Início do mês ATUAL (dia 1)
-    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-    const timeMin = startOfMonth.toISOString();
     
-    // Fim do MÊS SEGUINTE para garantir que pegue eventos futuros próximos
+    // Define o início do período como 00:00:00 de hoje para pegar eventos do dia inteiro atuais
+    const startOfPeriod = new Date(now);
+    startOfPeriod.setHours(0, 0, 0, 0);
+    const timeMin = startOfPeriod.toISOString();
+    
+    // Vai até o final do próximo mês
     const endOfNextMonth = new Date(now.getFullYear(), now.getMonth() + 2, 0);
     const timeMax = endOfNextMonth.toISOString();
 
-    // 1. Buscar lista de calendários do usuário
-    const listUrl = `${CALENDAR_API_BASE}/users/me/calendarList?minAccessRole=reader&_=${Date.now()}`;
-    const listResponse = await fetch(listUrl, {
-      headers: { Authorization: `Bearer ${accessToken}` }
-    });
+    // Lista simplificada de calendários para buscar (Principal + Feriados BR)
+    // Não dependemos mais da lista 'calendarList' do usuário para evitar erros de permissão
+    const calendarsToFetch: { id: string; name: string; color?: string }[] = [
+        { id: 'primary', name: 'Principal' },
+        { id: 'pt.brazilian#holiday@group.v.calendar.google.com', name: 'Feriados', color: '#e2e8f0' }
+    ];
 
-    let calendarIds: { id: string; name: string; color?: string }[] = [];
-    let holidayFound = false;
+    console.log("Iniciando busca de agenda...");
 
-    if (listResponse.ok) {
-      const listData = await listResponse.json();
-      const items: CalendarListEntry[] = listData.items || [];
-      
-      items.forEach(cal => {
-        const lowerSummary = cal.summary.toLowerCase();
-        const lowerId = cal.id.toLowerCase();
-
-        const isHoliday = 
-            lowerId.includes('holiday') || 
-            lowerId.includes('feriado') || 
-            lowerSummary.includes('feriados') || 
-            lowerSummary.includes('holidays') ||
-            lowerId.includes('brazilian');
-            
-        if (isHoliday) holidayFound = true;
-
-        if (cal.primary || isHoliday) {
-          calendarIds.push({ 
-            id: cal.id, 
-            name: cal.summary,
-            color: isHoliday ? '#e2e8f0' : undefined
-          });
-        }
-      });
-    } else {
-      // Fallback básico se a lista falhar
-      calendarIds.push({ id: 'primary', name: 'Principal' });
-    }
-
-    // 2. Se não encontrou feriados explicitamente, força a adição do calendário público BR
-    if (!holidayFound) {
-        calendarIds.push({ 
-            id: 'pt.brazilian#holiday@group.v.calendar.google.com', 
-            name: 'Feriados', 
-            color: '#e2e8f0' 
-        });
-    }
-
-    // Garantia de fallback se a lista vier vazia
-    if (calendarIds.length === 0) {
-        calendarIds.push({ id: 'primary', name: 'Principal' });
-    }
-
-    // 3. Busca eventos de todos os calendários identificados
-    const allEventsPromises = calendarIds.map(async (cal) => {
-      const url = `${CALENDAR_API_BASE}/calendars/${encodeURIComponent(cal.id)}/events?timeMin=${timeMin}&timeMax=${timeMax}&singleEvents=true&orderBy=startTime&maxResults=100&_=${Date.now()}`;
+    // Busca eventos em paralelo
+    const allEventsPromises = calendarsToFetch.map(async (cal) => {
+      // singleEvents=true expande eventos recorrentes
+      const url = `${CALENDAR_API_BASE}/calendars/${encodeURIComponent(cal.id)}/events?timeMin=${timeMin}&timeMax=${timeMax}&singleEvents=true&orderBy=startTime&maxResults=50&_=${Date.now()}`;
       
       try {
           const res = await fetch(url, {
@@ -83,15 +36,15 @@ export const fetchCalendarEvents = async (accessToken: string): Promise<Calendar
           });
 
           if (!res.ok) {
-              // Se falhar (ex: 404 no calendário de feriados), retorna vazio mas loga
-              console.warn(`Falha ao ler calendário: ${cal.name} (${res.status})`);
+              // Se falhar o de feriados, não tem problema, mas loga o erro
+              console.warn(`Aviso: Não foi possível ler calendário ${cal.name} (${res.status})`);
               return [];
           }
           
           const data = await res.json();
           return (data.items || []).map((item: any) => ({ ...item, _sourceName: cal.name }));
       } catch (e) {
-          console.warn(`Erro de conexão ao buscar calendário ${cal.name}`, e);
+          console.error(`Exceção ao ler calendário ${cal.name}`, e);
           return [];
       }
     });
@@ -99,23 +52,32 @@ export const fetchCalendarEvents = async (accessToken: string): Promise<Calendar
     const results = await Promise.all(allEventsPromises);
     const rawEvents = results.flat();
 
-    // 4. Processa e normaliza os dados
-    const processedEvents: CalendarEvent[] = rawEvents.map((item: any) => {
-      // Tratamento robusto de datas (dia inteiro vs horário específico)
-      const start = item.start.dateTime ? new Date(item.start.dateTime) : new Date(item.start.date + 'T00:00:00');
-      const end = item.end.dateTime ? new Date(item.end.dateTime) : new Date(item.end.date + 'T23:59:59');
-      const isAllDay = !item.start.dateTime;
+    console.log(`Total de eventos encontrados: ${rawEvents.length}`);
 
-      // Identifica se é evento de feriado
-      const isHoliday = 
-          item._sourceName?.toLowerCase().includes('feriados') || 
-          item._sourceName?.toLowerCase().includes('holidays') || 
-          (item.kind === 'calendar#event' && !item.organizer) ||
-          item.id.includes('holiday');
+    // Processamento e normalização dos dados
+    const processedEvents: CalendarEvent[] = rawEvents.map((item: any) => {
+      // Datas: Google retorna 'dateTime' para eventos pontuais e 'date' para dia inteiro
+      // Fallback de segurança para data atual se vier vazio
+      const startStr = item.start.dateTime || item.start.date;
+      const endStr = item.end.dateTime || item.end.date;
       
-      const description = isHoliday 
-        ? `Feriado` 
-        : (item.description || '');
+      const start = startStr ? new Date(startStr) : new Date();
+      // Ajuste de fuso horário para eventos de dia inteiro (geralmente vêm como UTC YYYY-MM-DD)
+      if (!item.start.dateTime) {
+          start.setHours(0,0,0,0); 
+      }
+
+      const end = endStr ? new Date(endStr) : new Date();
+      if (!item.end.dateTime) {
+          end.setHours(23,59,59,999);
+      }
+
+      const isAllDay = !item.start.dateTime;
+      const isHoliday = item.id.includes('holiday') || (item._sourceName || '').toLowerCase().includes('feriado');
+      
+      // Limpa a descrição
+      let description = item.description || '';
+      if (isHoliday) description = 'Feriado Nacional';
 
       return {
         id: item.id,
@@ -130,11 +92,13 @@ export const fetchCalendarEvents = async (accessToken: string): Promise<Calendar
       };
     });
 
-    // Ordena cronologicamente
-    return processedEvents.sort((a, b) => a.start.getTime() - b.start.getTime());
+    // Remove duplicatas e ordena
+    const uniqueEvents = Array.from(new Map(processedEvents.map(item => [item.id + item.start.getTime(), item])).values());
+
+    return uniqueEvents.sort((a, b) => a.start.getTime() - b.start.getTime());
 
   } catch (error) {
-    console.error("Erro crítico no calendarService:", error);
+    console.error("Erro crítico fetchCalendarEvents:", error);
     return [];
   }
 };

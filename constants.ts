@@ -1,9 +1,14 @@
 
+
 import { SiteConfig, SiteStatus, FormSubmission } from './types';
 
 // Chave secreta definida pelo usuário
 // Essa chave DEVE ser exatamente igual à variável $api_key_secret no código PHP do WordPress
 const SHARED_SECRET_KEY = '157918';
+
+// IMPORTANTE: Cole sua chave da Google Gemini API aqui para funcionar no celular
+// O ambiente mobile muitas vezes não carrega o process.env corretamente.
+export const FALLBACK_API_KEY = '';
 
 // IMPORTANTE: Substitua pelo seu Client ID do Google Cloud Console
 export const GOOGLE_CLIENT_ID = '914404526546-l7d1ke1tp2uu8nrfp9a3aj8eenlpvefs.apps.googleusercontent.com';

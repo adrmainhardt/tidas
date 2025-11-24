@@ -16,10 +16,11 @@ export const fetchCalendarEvents = async (accessToken: string): Promise<Calendar
     const endOfNextMonth = new Date(now.getFullYear(), now.getMonth() + 2, 0);
     const timeMax = endOfNextMonth.toISOString();
 
-    // Simplificação: Busca apenas o calendário principal 'primary'
-    // Evita erros 404 em calendários de feriados que podem ter IDs variados
+    // Calendários para monitorar
     const calendarsToFetch: { id: string; name: string }[] = [
-        { id: 'primary', name: 'Principal' }
+        { id: 'primary', name: 'Principal' },
+        { id: 'design02@tidas.com.br', name: 'Design Tidas' },
+        { id: 'pt-br.brazilian#holiday@group.v.calendar.google.com', name: 'Feriados' }
     ];
 
     console.log("Iniciando busca de agenda API...");

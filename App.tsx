@@ -9,14 +9,14 @@ import EmailDetailsModal from './components/EmailDetailsModal';
 import TrelloCardItem from './components/TrelloCardItem';
 import CalendarEventItem from './components/CalendarEventItem';
 import WeatherWidget from './components/WeatherWidget';
-import TrafficWidget from './components/TrafficWidget'; // Importado
+import TrafficWidget from './components/TrafficWidget'; 
 import SideMenu from './components/SideMenu'; 
 import ConfigModal from './components/ConfigModal'; 
 import { fetchFormsFromWP, fetchSiteStats } from './services/wpService';
 import { fetchGmailMessages } from './services/gmailService';
 import { fetchCalendarEvents } from './services/calendarService';
 import { fetchBoards, fetchLists, fetchCardsFromList } from './services/trelloService';
-import { generateDashboardInsight, calculateCommuteTime } from './services/geminiService'; // Atualizado
+import { generateDashboardInsight, calculateCommuteTime } from './services/geminiService'; 
 import { fetchWeather, fetchLocationName, getWeatherInfo } from './services/weatherService';
 import { Activity, RefreshCw, AlertTriangle, WifiOff, Trash2, BarChart3, Mail, LogIn, LogOut, Copy, Info, Check, Trello, Settings, CheckSquare, ExternalLink, HelpCircle, Bell, CalendarDays, Calendar, Sparkles, X, Globe, MessageSquareText, Save, Send, User, ChevronDown, ChevronUp, AlertOctagon, Menu } from 'lucide-react';
 
@@ -135,7 +135,7 @@ const App: React.FC = () => {
       showTrello: true,
       showGoogle: true,
       showWeather: true,
-      showTraffic: true, // Habilitado por padrão conforme solicitado
+      showTraffic: true, 
       calendarMode: 'api',
       calendarEmbedUrl: ''
   });
@@ -227,16 +227,47 @@ const App: React.FC = () => {
     }
   }, []);
 
-  // Traffic Effect
+  // Traffic Effect - Memorizado com GPS Real
   const fetchTraffic = useCallback(async () => {
      if (!dashPrefs.showTraffic) return;
-     setTrafficTime("Calculando...");
-     const time = await calculateCommuteTime();
-     setTrafficTime(time);
+     
+     setTrafficTime("Localizando...");
+
+     // Verifica se o navegador suporta geolocalização
+     if (!('geolocation' in navigator)) {
+         setTrafficTime("Sem GPS");
+         return;
+     }
+
+     navigator.geolocation.getCurrentPosition(
+        async (position) => {
+            const { latitude, longitude } = position.coords;
+            setTrafficTime("Calculando...");
+            try {
+                // Passa coordenadas para o serviço Gemini
+                const time = await calculateCommuteTime({ lat: latitude, lng: longitude });
+                setTrafficTime(time);
+            } catch (error) {
+                console.error("Erro ao calcular tempo:", error);
+                setTrafficTime("Erro");
+            }
+        },
+        (error) => {
+            console.warn("Permissão de GPS negada para trânsito:", error);
+            // Fallback: Tenta calcular sem coordenadas (vai usar um centro genérico) mas avisa erro de permissão
+            setTrafficTime("Permissão GPS Negada");
+            // Tenta uma estimativa genérica como fallback secundário após 2s
+            setTimeout(async () => {
+               const time = await calculateCommuteTime(); // Chama sem coords
+               if (time && !time.includes('Erro')) setTrafficTime(`${time} (Genérico)`);
+            }, 2000);
+        },
+        { enableHighAccuracy: true, timeout: 15000, maximumAge: 60000 }
+     );
   }, [dashPrefs.showTraffic]);
 
+  // Carrega trânsito na montagem se habilitado
   useEffect(() => {
-     // Carrega o trânsito apenas ao montar se a preferência estiver ativa
      if (dashPrefs.showTraffic) {
          fetchTraffic();
      }
@@ -274,38 +305,6 @@ const App: React.FC = () => {
       loadWeather();
     }
   }, [loadWeather, dashPrefs.showWeather]);
-
-  const requestNotificationPermission = async () => {
-    if ('Notification' in window) {
-      try {
-        const permission = await Notification.requestPermission();
-        setNotifPermission(permission);
-        if (permission === 'granted') {
-          sendNotification('Notificações Ativadas', 'Você receberá alertas.');
-        }
-      } catch (error) {
-        console.error('Erro ao solicitar permissão:', error);
-      }
-    }
-  };
-
-  const sendNotification = (title: string, body: string) => {
-    if (notifPermission !== 'granted') return;
-    playNotificationSound();
-    try {
-      if (typeof window !== 'undefined' && 'Notification' in window) {
-         new Notification(title, { 
-           body, 
-           icon: 'https://tidas.com.br/wp-content/uploads/2025/11/icoapp.png',
-           tag: 'tidas-notification',
-           requireInteraction: false
-         });
-         if (navigator.vibrate) navigator.vibrate([100, 50, 100]);
-      }
-    } catch (e) {
-      console.warn('Falha notificação:', e);
-    }
-  };
 
   const checkSiteStatus = async (site: SiteConfig): Promise<SiteConfig> => {
     const controller = new AbortController();
@@ -523,7 +522,6 @@ const App: React.FC = () => {
         const currentInfo = getWeatherInfo(weather.current.code);
         const todayInfo = getWeatherInfo(weather.today.code);
         
-        // Formatação robusta com previsão semanal inclusa
         const weekContext = weather.weekSummary 
             ? `PREVISÃO SEMANAL: ${weather.weekSummary}` 
             : "Sem previsão estendida.";
@@ -542,7 +540,7 @@ const App: React.FC = () => {
         emails: emails.filter(e => e.isUnread).slice(0, 5).map(e => e.subject),
         events: todayEvents.map(e => `${e.title} às ${e.start.getHours()}:${e.start.getMinutes()}`),
         trello: trelloBadgeCount,
-        weather: weatherText // Passa o texto formatado rico
+        weather: weatherText 
     };
 
     try {
@@ -553,6 +551,38 @@ const App: React.FC = () => {
         setInsightError(error.message || "Erro desconhecido.");
     } finally {
         setIsLoadingInsight(false);
+    }
+  };
+
+  const requestNotificationPermission = async () => {
+    if ('Notification' in window) {
+      try {
+        const permission = await Notification.requestPermission();
+        setNotifPermission(permission);
+        if (permission === 'granted') {
+          sendNotification('Notificações Ativadas', 'Você receberá alertas.');
+        }
+      } catch (error) {
+        console.error('Erro ao solicitar permissão:', error);
+      }
+    }
+  };
+
+  const sendNotification = (title: string, body: string) => {
+    if (notifPermission !== 'granted') return;
+    playNotificationSound();
+    try {
+      if (typeof window !== 'undefined' && 'Notification' in window) {
+         new Notification(title, { 
+           body, 
+           icon: 'https://tidas.com.br/wp-content/uploads/2025/11/icoapp.png',
+           tag: 'tidas-notification',
+           requireInteraction: false
+         });
+         if (navigator.vibrate) navigator.vibrate([100, 50, 100]);
+      }
+    } catch (e) {
+      console.warn('Falha notificação:', e);
     }
   };
 
@@ -586,8 +616,23 @@ const App: React.FC = () => {
       }
     }, 10000);
 
-    return () => { isMounted = false; clearInterval(intervalId); };
-  }, [googleToken]); 
+    // CRITICAL FIX: Re-check when app becomes visible (e.g. unlocking phone, switching tabs)
+    const handleVisibilityChange = () => {
+        if (document.visibilityState === 'visible') {
+            console.log("App foreground: refreshing data...");
+            checkAllSites();
+            if (dashPrefs.showTraffic) fetchTraffic();
+            if (dashPrefs.showWeather) loadWeather();
+        }
+    };
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    return () => { 
+        isMounted = false; 
+        clearInterval(intervalId); 
+        document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, [googleToken, dashPrefs.showTraffic, dashPrefs.showWeather, fetchTraffic, loadWeather]); 
 
   const handleMarkAsRead = (id: string) => {
     if (!readFormIds.includes(id)) {
@@ -665,8 +710,8 @@ const App: React.FC = () => {
 
         {dashPrefs.showTraffic && (
           <TrafficWidget 
-            origin="Tidas" 
-            destination="Otto Guckert" 
+            origin="Localização Atual" 
+            destination="Casa" 
             info={trafficTime} 
             onRefresh={fetchTraffic}
           />

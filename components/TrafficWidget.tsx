@@ -1,6 +1,5 @@
-
 import React from 'react';
-import { Car, Clock } from 'lucide-react';
+import { Car, Clock, MapPin } from 'lucide-react';
 
 interface TrafficWidgetProps {
   origin: string;
@@ -26,9 +25,12 @@ const TrafficWidget: React.FC<TrafficWidgetProps> = ({ info, onRefresh }) => {
       <div className="relative z-10">
           <div className="flex items-center justify-between">
              <div className="flex flex-col">
-                 <span className="text-xs text-slate-400 mb-0.5">Saindo agora</span>
-                 <span className={`text-3xl font-bold text-slate-100 ${info === 'Calculando...' ? 'text-lg text-slate-400 animate-pulse' : ''}`}>
-                     {info && info !== 'LIMIT_REACHED' ? info : (info === 'LIMIT_REACHED' ? 'Indisponível' : (info === 'Calculando...' ? 'Calculando...' : '---'))}
+                 <div className="flex items-center gap-1 mb-0.5 text-slate-400">
+                     <MapPin className="w-3 h-3" />
+                     <span className="text-xs">De sua localização atual</span>
+                 </div>
+                 <span className={`text-3xl font-bold text-slate-100 ${info?.includes('...') ? 'text-lg text-slate-400 animate-pulse' : ''}`}>
+                     {info && info !== 'LIMIT_REACHED' ? info : (info === 'LIMIT_REACHED' ? 'Indisponível' : (info?.includes('...') ? info : '---'))}
                  </span>
              </div>
              

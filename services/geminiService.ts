@@ -1,11 +1,21 @@
+
 import { GoogleGenAI } from "@google/genai";
 import { FormSubmission } from "../types";
+import { FALLBACK_API_KEY } from "../constants";
+
+// Função auxiliar para garantir que temos uma chave
+const getApiKey = (): string | undefined => {
+  // Prioriza a variável de ambiente, mas usa o fallback do constants.ts se necessário (fix para mobile)
+  const key = process.env.API_KEY || FALLBACK_API_KEY;
+  return (key && key.trim() !== '') ? key : undefined;
+};
 
 export const analyzeForms = async (forms: FormSubmission[]): Promise<string> => {
   try {
-    if (!process.env.API_KEY) return "Erro: API Key não configurada no arquivo .env ou ambiente.";
+    const apiKey = getApiKey();
+    if (!apiKey) return "Erro: API Key não configurada (Mobile/Env).";
 
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    const ai = new GoogleGenAI({ apiKey });
     
     const formSummary = forms.map(f => 
       `- De: ${f.senderName} (${f.senderEmail}) | Mensagem: "${f.message}" | Data: ${f.timestamp.toLocaleString()}`
@@ -30,24 +40,43 @@ export const analyzeForms = async (forms: FormSubmission[]): Promise<string> => 
   }
 };
 
-export const calculateCommuteTime = async (): Promise<string> => {
-  if (!process.env.API_KEY) return "Erro API Key";
+export const calculateCommuteTime = async (originCoords?: { lat: number, lng: number }): Promise<string> => {
+  const apiKey = getApiKey();
+  if (!apiKey) return "Sem Key";
 
   try {
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    const ai = new GoogleGenAI({ apiKey });
 
-    // Endereços exatos extraídos do link do Maps fornecido
-    const origin = "Tidas - Avenida Oscar Barcelos - Centro, Rio do Sul - SC";
-    const destination = "R. Otto Guckert, 99 - Canta Galo, Rio do Sul - SC";
+    // Destino fixo
+    const destination = "R. Otto Guckert, 99 - Canta Galo, Rio do Sul - SC, 89163-332";
+    
+    // Define a origem baseada no GPS (prioridade) ou fallback genérico
+    let originDescription = "Centro de Rio do Sul, SC";
+    let usingGPS = false;
+    
+    if (originCoords) {
+        originDescription = `${originCoords.lat},${originCoords.lng}`;
+        usingGPS = true;
+    }
 
     const prompt = `
-      Qual é o tempo de viagem estimado DE CARRO (dirigindo) AGORA de:
-      "${origin}" 
-      para:
-      "${destination}"?
+      Atue como um navegador GPS.
       
-      Considere o trânsito atual.
-      Responda EXATAMENTE e APENAS com o tempo (ex: "12 min" ou "1 h 5 min"). Não adicione texto extra.
+      Rota:
+      De: "${originDescription}" ${usingGPS ? '(Coordenadas GPS exatas)' : '(Centro da cidade)'}
+      Para: "${destination}"
+      
+      Instrução:
+      Use a ferramenta googleMaps para calcular o tempo de trânsito AGORA (driving).
+      
+      Retorno Obrigatório:
+      Apenas o tempo estimado (ex: "15 min", "1 h 10 min") e um emoji de status.
+      - 🔴 para trânsito pesado/atraso.
+      - 🟡 para trânsito moderado.
+      - 🟢 para trânsito livre.
+      
+      Exemplo final: "🟢 12 min"
+      Não escreva frases, apenas o emoji e o tempo.
     `;
 
     const response = await ai.models.generateContent({
@@ -58,18 +87,20 @@ export const calculateCommuteTime = async (): Promise<string> => {
       }
     });
 
-    // Se o Gemini usar o Maps, ele retorna groundingChunks, mas o texto gerado deve conter a resposta resumida que pedimos
     let timeText = response.text?.trim() || "";
     
-    // Limpeza básica caso venha com ponto final
-    if (timeText.endsWith('.')) timeText = timeText.slice(0, -1);
+    // Limpeza e validação
+    timeText = timeText.replace(/\.$/, ''); // Remove ponto final
+    
+    if (!timeText || timeText.length > 40) return "Consultar Mapa";
 
-    return timeText || "N/A";
+    return timeText;
 
   } catch (error: any) {
     console.error("Erro ao calcular rota:", error);
-    // Retorna string vazia ou erro curto para não quebrar layout
-    return "Erro";
+    // Erros de permissão ou rede
+    if (error.message?.includes('fetch')) return "Offline";
+    return "Erro API";
   }
 };
 
@@ -81,13 +112,16 @@ export const generateDashboardInsight = async (context: {
     trello: number,
     weather?: string
 }): Promise<string> => {
+    
+    const apiKey = getApiKey();
+
     // 1. Verificação de Existência da Chave (Erro de Build/Ambiente)
-    if (!process.env.API_KEY || process.env.API_KEY.trim() === '') {
-        throw new Error("A API_KEY não foi injetada no app (Vazia/Undefined).");
+    if (!apiKey) {
+        throw new Error("Chave API não encontrada. Adicione em constants.ts para mobile.");
     }
 
     try {
-        const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+        const ai = new GoogleGenAI({ apiKey });
 
         const siteText = context.sites?.length ? context.sites.join(', ') : "Todos online.";
         const formText = context.forms?.length ? context.forms.join('; ') : "Sem mensagens novas.";
@@ -134,7 +168,7 @@ export const generateDashboardInsight = async (context: {
         
         // 2. Verificação de Validade da Chave (Erro do Google)
         if (message.includes("API key not valid") || message.includes("400") || message.includes("403")) {
-            throw new Error("Chave API recusada pelo Google. Verifique restrições.");
+            throw new Error("Chave API recusada. Verifique o constants.ts.");
         }
         
         if (message.includes("fetch") || message.includes("Network")) {

@@ -36,32 +36,37 @@ export const generateDashboardInsight = async (context: {
     forms: string[],
     emails: string[],
     events: string[],
-    trello: number
+    trello: number,
+    weather?: string
 }): Promise<string> => {
     try {
         if (!process.env.API_KEY) {
-            throw new Error("API Key não encontrada no ambiente.");
+            throw new Error("API Key ausente/inválida.");
         }
 
         const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
-        const siteText = context.sites?.length ? context.sites.join(', ') : "Nenhum site monitorado.";
-        const formText = context.forms?.length ? context.forms.join('; ') : "Nenhuma mensagem nova.";
-        const emailText = context.emails?.length ? context.emails.join('; ') : "Sem emails não lidos.";
+        const siteText = context.sites?.length ? context.sites.join(', ') : "Todos online.";
+        const formText = context.forms?.length ? context.forms.join('; ') : "Sem mensagens críticas.";
+        const emailText = context.emails?.length ? context.emails.join('; ') : "Caixa de entrada limpa.";
         const eventText = context.events?.length ? context.events.join('; ') : "Agenda livre.";
-        const trelloText = `${context.trello || 0} cartões pendentes.`;
+        const trelloText = context.trello > 0 ? `${context.trello} tarefas pendentes.` : "Tudo em dia no Trello.";
+        const weatherText = context.weather || "Clima não informado.";
 
         const prompt = `
-        Atue como um assistente pessoal executivo eficiente.
-        Gere um "Resumo do Dia" curto (máximo 2 linhas) baseado nestes dados:
-        
-        SITES: ${siteText}
-        MSGS: ${formText}
-        EMAILS: ${emailText}
-        AGENDA: ${eventText}
-        TRELLO: ${trelloText}
+        Atue como um assistente executivo de elite. Analise TODOS os dados abaixo para gerar um "Briefing Matinal" estratégico e direto (máximo 3 frases curtas).
 
-        Se houver problemas (sites offline), priorize isso. Caso contrário, dê um status geral positivo.
+        DADOS:
+        - Clima/Previsão: ${weatherText}
+        - Agenda: ${eventText}
+        - Sites: ${siteText}
+        - Mensagens/Emails: ${formText} // ${emailText}
+        - Tarefas: ${trelloText}
+
+        INSTRUÇÃO:
+        1. Comece comentando o clima e como ele afeta o dia (ex: "Dia chuvoso, ideal para focar no escritório").
+        2. Destaque o compromisso ou problema mais urgente (Sites offline > Reuniões > Emails).
+        3. Termine com uma frase motivadora ou de foco.
         `;
 
         const response = await ai.models.generateContent({
@@ -78,12 +83,14 @@ export const generateDashboardInsight = async (context: {
         console.error("Erro detalhado Insight:", error);
         
         let msg = "Insight indisponível.";
-        if (error.message.includes("API Key")) msg = "Erro: Chave API ausente.";
-        else if (error.message.includes("Quota")) msg = "Cota da IA excedida.";
-        else if (error.message.includes("fetch")) msg = "Erro de conexão.";
-        else if (error.toString().includes("403")) msg = "Acesso negado (403).";
+        // Tenta extrair mensagens de erro mais úteis para o usuário mobile
+        if (error.message) {
+            if (error.message.includes("API Key")) msg = "Erro: Chave API ausente.";
+            else if (error.message.includes("Quota")) msg = "Limite de uso da IA atingido.";
+            else if (error.message.includes("Failed to fetch")) msg = "Sem conexão com a IA.";
+            else if (error.toString().includes("403")) msg = "Acesso negado à IA (403).";
+        }
         
-        // Retorna a mensagem de erro para ser exibida na UI
         throw new Error(msg);
     }
 }

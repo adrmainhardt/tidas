@@ -17,7 +17,7 @@ import { fetchGmailMessages } from './services/gmailService';
 import { fetchCalendarEvents } from './services/calendarService';
 import { fetchBoards, fetchLists, fetchCardsFromList } from './services/trelloService';
 import { generateDashboardInsight } from './services/geminiService';
-import { fetchWeather, fetchLocationName } from './services/weatherService';
+import { fetchWeather, fetchLocationName, getWeatherInfo } from './services/weatherService';
 import { Activity, RefreshCw, AlertTriangle, WifiOff, Trash2, BarChart3, Mail, LogIn, LogOut, Copy, Info, Check, Trello, Settings, CheckSquare, ExternalLink, HelpCircle, Bell, CalendarDays, Calendar, Sparkles, X, Globe, MessageSquareText, Save, Send, User, ChevronDown, ChevronUp, AlertOctagon, Menu } from 'lucide-react';
 
 declare global {
@@ -498,12 +498,21 @@ const App: React.FC = () => {
     const now = new Date();
     const todayEvents = events.filter(e => isSameDay(e.start, now));
     
+    // Preparar texto do clima
+    let weatherText = "Dados meteorológicos não disponíveis.";
+    if (weather) {
+        const currentInfo = getWeatherInfo(weather.current.code);
+        const todayInfo = getWeatherInfo(weather.today.code);
+        weatherText = `Em ${weather.locationName || 'sua região'}: Agora faz ${weather.current.temp}°C (${currentInfo.label}). Hoje Máx ${weather.today.max}°/Min ${weather.today.min}° (${todayInfo.label}). Amanhã Máx ${weather.tomorrow.max}°/Min ${weather.tomorrow.min}°.`;
+    }
+
     const context = {
         sites: sites.map(s => `${s.name}: ${s.status}`),
         forms: forms.filter(f => !f.isRead).slice(0, 3).map(f => `${f.senderName}: ${f.message.substring(0, 50)}...`),
         emails: emails.filter(e => e.isUnread).slice(0, 5).map(e => e.subject),
         events: todayEvents.map(e => `${e.title} às ${e.start.getHours()}:${e.start.getMinutes()}`),
-        trello: trelloBadgeCount
+        trello: trelloBadgeCount,
+        weather: weatherText
     };
 
     try {
@@ -607,16 +616,17 @@ const App: React.FC = () => {
 
             <div className="relative z-10 mt-1">
                 {insightError ? (
-                    <p className="text-xs text-rose-300 font-medium">
-                        {insightError}
-                    </p>
+                    <div className="p-2 bg-rose-500/10 rounded border border-rose-500/20">
+                        <p className="text-xs text-rose-300 font-bold mb-1">Não foi possível gerar.</p>
+                        <p className="text-[10px] text-rose-400">{insightError}</p>
+                    </div>
                 ) : insightResult ? (
                     <p className="text-xs text-slate-300 leading-relaxed animate-fade-in">
                         {insightResult}
                     </p>
                 ) : (
                     <p className="text-xs text-slate-400 italic">
-                        Toque aqui para gerar um resumo...
+                        Toque aqui para gerar um resumo do seu dia com IA (Clima, Agenda e Alertas).
                     </p>
                 )}
             </div>

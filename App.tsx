@@ -1,5 +1,3 @@
-
-
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { DEFAULT_SITES, MOCK_FORMS, GOOGLE_CLIENT_ID, TRELLO_API_KEY, TRELLO_TOKEN } from './constants';
 import { SiteConfig, SiteStatus, ViewState, FormSubmission, EmailMessage, TrelloBoard, TrelloList, TrelloCard, CalendarEvent, WeatherData, DashboardPrefs } from './types';
@@ -11,13 +9,14 @@ import EmailDetailsModal from './components/EmailDetailsModal';
 import TrelloCardItem from './components/TrelloCardItem';
 import CalendarEventItem from './components/CalendarEventItem';
 import WeatherWidget from './components/WeatherWidget';
+import TrafficWidget from './components/TrafficWidget'; // Importado
 import SideMenu from './components/SideMenu'; 
 import ConfigModal from './components/ConfigModal'; 
 import { fetchFormsFromWP, fetchSiteStats } from './services/wpService';
 import { fetchGmailMessages } from './services/gmailService';
 import { fetchCalendarEvents } from './services/calendarService';
 import { fetchBoards, fetchLists, fetchCardsFromList } from './services/trelloService';
-import { generateDashboardInsight } from './services/geminiService';
+import { generateDashboardInsight, calculateCommuteTime } from './services/geminiService'; // Atualizado
 import { fetchWeather, fetchLocationName, getWeatherInfo } from './services/weatherService';
 import { Activity, RefreshCw, AlertTriangle, WifiOff, Trash2, BarChart3, Mail, LogIn, LogOut, Copy, Info, Check, Trello, Settings, CheckSquare, ExternalLink, HelpCircle, Bell, CalendarDays, Calendar, Sparkles, X, Globe, MessageSquareText, Save, Send, User, ChevronDown, ChevronUp, AlertOctagon, Menu } from 'lucide-react';
 
@@ -125,14 +124,18 @@ const App: React.FC = () => {
   const [insightError, setInsightError] = useState<string | null>(null);
   const [isLoadingInsight, setIsLoadingInsight] = useState(false);
 
+  // Estado para o trânsito
+  const [trafficTime, setTrafficTime] = useState<string | null>(null);
+
   const [isSideMenuOpen, setIsSideMenuOpen] = useState(false);
   const [isConfigModalOpen, setIsConfigModalOpen] = useState(false);
 
-  const [dashPrefs, setDashPrefs] = usePersistedState<DashboardPrefs>('dashboard_prefs_v4', {
+  const [dashPrefs, setDashPrefs] = usePersistedState<DashboardPrefs>('dashboard_prefs_v5', {
       showSites: true,
       showTrello: true,
       showGoogle: true,
       showWeather: true,
+      showTraffic: true, // Habilitado por padrão conforme solicitado
       calendarMode: 'api',
       calendarEmbedUrl: ''
   });
@@ -223,6 +226,21 @@ const App: React.FC = () => {
       setNotifPermission(Notification.permission);
     }
   }, []);
+
+  // Traffic Effect
+  const fetchTraffic = useCallback(async () => {
+     if (!dashPrefs.showTraffic) return;
+     setTrafficTime("Calculando...");
+     const time = await calculateCommuteTime();
+     setTrafficTime(time);
+  }, [dashPrefs.showTraffic]);
+
+  useEffect(() => {
+     // Carrega o trânsito apenas ao montar se a preferência estiver ativa
+     if (dashPrefs.showTraffic) {
+         fetchTraffic();
+     }
+  }, [fetchTraffic, dashPrefs.showTraffic]);
 
   const loadWeather = useCallback(() => {
     if (!('geolocation' in navigator)) return;
@@ -499,18 +517,23 @@ const App: React.FC = () => {
     const now = new Date();
     const todayEvents = events.filter(e => isSameDay(e.start, now));
     
-    // Preparar texto do clima robusto com previsão semanal
     let weatherText = "Clima não informado (ative a localização).";
+    
     if (weather) {
         const currentInfo = getWeatherInfo(weather.current.code);
+        const todayInfo = getWeatherInfo(weather.today.code);
         
-        // Construção da string com resumo semanal se disponível
-        let weekContext = "";
-        if (weather.weekSummary) {
-            weekContext = `Previsão próxima semana: ${weather.weekSummary}.`;
-        }
+        // Formatação robusta com previsão semanal inclusa
+        const weekContext = weather.weekSummary 
+            ? `PREVISÃO SEMANAL: ${weather.weekSummary}` 
+            : "Sem previsão estendida.";
 
-        weatherText = `Local: ${weather.locationName || 'Atual'}. Agora: ${weather.current.temp}°C (${currentInfo.label}). Hoje Max/Min: ${weather.today.max}°/${weather.today.min}°. Amanhã Max/Min: ${weather.tomorrow.max}°/${weather.tomorrow.min}°. ${weekContext}`;
+        weatherText = `
+          Local: ${weather.locationName || 'Atual'}. 
+          Agora: ${weather.current.temp}°C (${currentInfo.label}).
+          Hoje: Max ${weather.today.max}° / Min ${weather.today.min}° (${todayInfo.label}).
+          ${weekContext}
+        `;
     }
 
     const context = {
@@ -519,7 +542,7 @@ const App: React.FC = () => {
         emails: emails.filter(e => e.isUnread).slice(0, 5).map(e => e.subject),
         events: todayEvents.map(e => `${e.title} às ${e.start.getHours()}:${e.start.getMinutes()}`),
         trello: trelloBadgeCount,
-        weather: weatherText
+        weather: weatherText // Passa o texto formatado rico
     };
 
     try {
@@ -626,7 +649,7 @@ const App: React.FC = () => {
                     <div className="p-2 bg-rose-500/10 rounded border border-rose-500/20">
                         <p className="text-[10px] text-rose-300 font-bold mb-1 flex items-center gap-1"><AlertTriangle className="w-3 h-3"/> Erro ao gerar:</p>
                         <p className="text-[10px] text-rose-400 leading-tight break-words">{insightError}</p>
-                        {insightError.includes('Key') && <p className="text-[9px] text-rose-500 mt-1">Verifique se a API_KEY está configurada corretamente na build.</p>}
+                        {insightError.includes('injetada') && <p className="text-[9px] text-rose-500 mt-1 font-bold">Configure o API_KEY no .env do servidor/build.</p>}
                     </div>
                 ) : insightResult ? (
                     <p className="text-xs text-slate-300 leading-relaxed animate-fade-in whitespace-pre-line">
@@ -639,6 +662,15 @@ const App: React.FC = () => {
                 )}
             </div>
         </div>
+
+        {dashPrefs.showTraffic && (
+          <TrafficWidget 
+            origin="Tidas" 
+            destination="Otto Guckert" 
+            info={trafficTime} 
+            onRefresh={fetchTraffic}
+          />
+        )}
 
         {notifPermission === 'default' && (
            <button onClick={requestNotificationPermission} className="w-full bg-blue-600/20 text-blue-300 text-xs font-bold p-3 rounded-xl border border-blue-600/30 flex items-center justify-center gap-2">
@@ -708,7 +740,7 @@ const App: React.FC = () => {
           </div>
         )}
         
-        {!dashPrefs.showSites && !dashPrefs.showTrello && !dashPrefs.showGoogle && !dashPrefs.showWeather && (
+        {!dashPrefs.showSites && !dashPrefs.showTrello && !dashPrefs.showGoogle && !dashPrefs.showWeather && !dashPrefs.showTraffic && (
             <div className="text-center py-20 text-slate-500">
                 <p>Personalize sua tela inicial no menu de configurações.</p>
             </div>

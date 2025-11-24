@@ -1,5 +1,3 @@
-
-
 import { GoogleGenAI } from "@google/genai";
 import { FormSubmission } from "../types";
 
@@ -32,6 +30,49 @@ export const analyzeForms = async (forms: FormSubmission[]): Promise<string> => 
   }
 };
 
+export const calculateCommuteTime = async (): Promise<string> => {
+  if (!process.env.API_KEY) return "Erro API Key";
+
+  try {
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+
+    // Endereços exatos extraídos do link do Maps fornecido
+    const origin = "Tidas - Avenida Oscar Barcelos - Centro, Rio do Sul - SC";
+    const destination = "R. Otto Guckert, 99 - Canta Galo, Rio do Sul - SC";
+
+    const prompt = `
+      Qual é o tempo de viagem estimado DE CARRO (dirigindo) AGORA de:
+      "${origin}" 
+      para:
+      "${destination}"?
+      
+      Considere o trânsito atual.
+      Responda EXATAMENTE e APENAS com o tempo (ex: "12 min" ou "1 h 5 min"). Não adicione texto extra.
+    `;
+
+    const response = await ai.models.generateContent({
+      model: 'gemini-2.5-flash',
+      contents: prompt,
+      config: {
+        tools: [{ googleMaps: {} }],
+      }
+    });
+
+    // Se o Gemini usar o Maps, ele retorna groundingChunks, mas o texto gerado deve conter a resposta resumida que pedimos
+    let timeText = response.text?.trim() || "";
+    
+    // Limpeza básica caso venha com ponto final
+    if (timeText.endsWith('.')) timeText = timeText.slice(0, -1);
+
+    return timeText || "N/A";
+
+  } catch (error: any) {
+    console.error("Erro ao calcular rota:", error);
+    // Retorna string vazia ou erro curto para não quebrar layout
+    return "Erro";
+  }
+};
+
 export const generateDashboardInsight = async (context: {
     sites: string[],
     forms: string[],
@@ -40,13 +81,12 @@ export const generateDashboardInsight = async (context: {
     trello: number,
     weather?: string
 }): Promise<string> => {
-    try {
-        // Verificação explícita da chave antes de tentar chamar
-        // Isso é crucial para debug no celular
-        if (!process.env.API_KEY) {
-            throw new Error("API_KEY não encontrada. Verifique as variáveis de ambiente ou o arquivo .env.");
-        }
+    // 1. Verificação de Existência da Chave (Erro de Build/Ambiente)
+    if (!process.env.API_KEY || process.env.API_KEY.trim() === '') {
+        throw new Error("A API_KEY não foi injetada no app (Vazia/Undefined).");
+    }
 
+    try {
         const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
         const siteText = context.sites?.length ? context.sites.join(', ') : "Todos online.";
@@ -57,23 +97,24 @@ export const generateDashboardInsight = async (context: {
         const weatherText = context.weather || "Dados de clima indisponíveis.";
 
         const prompt = `
-        Você é um assistente pessoal inteligente (Briefing Executivo).
+        Você é um assistente pessoal executivo (Tidas AI).
         
-        DADOS ATUAIS:
-        1. Clima e Previsão Semanal: ${weatherText}
-        2. Agenda Hoje: ${eventText}
-        3. Status Sites: ${siteText}
-        4. Mensagens/Emails Recentes: ${formText} // ${emailText}
-        5. Tarefas Pendentes: ${trelloText}
+        PANORAMA COMPLETO:
+        ------------------
+        1. 🌦️ Clima: ${weatherText}
+        2. 📅 Agenda Hoje: ${eventText}
+        3. 🌐 Monitoramento: ${siteText}
+        4. 📩 Inbox (Forms/Emails): ${formText} // ${emailText}
+        5. 📋 Projetos (Trello): ${trelloText}
 
-        OBJETIVO:
-        Gere um resumo curto (máximo 3 a 4 linhas) em texto corrido.
+        INSTRUÇÃO:
+        Gere um briefing estratégico curto (3-4 linhas) e direto.
         
-        REGRAS:
-        - OBRIGATÓRIO: Relacione o clima da semana com a agenda/tarefas se houver eventos relevantes (ex: "Chuva na terça pode afetar a reunião externa...").
-        - Se houver previsão de mudança drástica de tempo na semana, avise.
-        - Priorize problemas críticos (Site Offline) acima de tudo.
-        - Tom de voz: Profissional e direto.
+        REQUISITOS CRÍTICOS:
+        1. **CLIMA DA SEMANA**: Se houver previsão de chuva ou mudança brusca na semana informada, ALERTE explicitamente relacionando com a agenda/trânsito.
+        2. **PRIORIDADE**: Se houver site OFFLINE, comece por isso.
+        3. **CORRELAÇÃO**: Tente conectar os pontos (ex: "Semana chuvosa pode impactar reuniões externas...").
+        4. Tom: Profissional, assertivo e em Português do Brasil.
         `;
 
         const response = await ai.models.generateContent({
@@ -89,15 +130,19 @@ export const generateDashboardInsight = async (context: {
     } catch (error: any) {
         console.error("Erro detalhado Insight:", error);
         
-        // Retorna o erro REAL para facilitar o debug na tela do usuário no celular
         let message = error.message || error.toString();
         
-        if (message.includes("API key not valid") || message.includes("API_KEY")) {
-            throw new Error("Chave de API inválida ou ausente.");
+        // 2. Verificação de Validade da Chave (Erro do Google)
+        if (message.includes("API key not valid") || message.includes("400") || message.includes("403")) {
+            throw new Error("Chave API recusada pelo Google. Verifique restrições.");
         }
         
-        if (message.includes("fetch")) {
-             throw new Error("Erro de conexão. Verifique a internet.");
+        if (message.includes("fetch") || message.includes("Network")) {
+             throw new Error("Sem conexão com a internet ou bloqueio de rede.");
+        }
+
+        if (message.includes("candidate")) {
+             throw new Error("Conteúdo bloqueado pelos filtros de segurança.");
         }
 
         throw new Error(message);

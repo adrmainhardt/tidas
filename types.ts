@@ -113,6 +113,7 @@ export interface DashboardPrefs {
   showTrello: boolean;
   showGoogle: boolean;
   showWeather: boolean;
+  showTraffic: boolean; // Nova preferência
   // Configuração de Agenda
   calendarMode: 'api' | 'embed';
   calendarEmbedUrl?: string;

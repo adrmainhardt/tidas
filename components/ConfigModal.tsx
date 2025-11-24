@@ -1,6 +1,7 @@
 
+
 import React, { useEffect, useState } from 'react';
-import { X, Settings, Eye, Bell, MapPin, ToggleLeft, ToggleRight, LayoutDashboard, Calendar, Link } from 'lucide-react';
+import { X, Settings, Eye, Bell, MapPin, ToggleLeft, ToggleRight, LayoutDashboard, Calendar, Link, Car } from 'lucide-react';
 import { DashboardPrefs } from '../types';
 
 interface ConfigModalProps {
@@ -110,6 +111,13 @@ const ConfigModal: React.FC<ConfigModalProps> = ({
                     icon={LayoutDashboard} 
                     checked={preferences.showWeather} 
                     onChange={() => onTogglePreference('showWeather')} 
+                />
+                 <ToggleItem 
+                    label="Tempo de Trânsito" 
+                    icon={Car} 
+                    checked={preferences.showTraffic} 
+                    onChange={() => onTogglePreference('showTraffic')} 
+                    description="Tidas -> Otto Guckert"
                 />
             </div>
 

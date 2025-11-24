@@ -1,4 +1,5 @@
 
+
 import { WeatherData } from "../types";
 import { Cloud, CloudDrizzle, CloudFog, CloudLightning, CloudRain, CloudSnow, CloudSun, Moon, Sun, Snowflake } from "lucide-react";
 import React from 'react';
@@ -36,6 +37,7 @@ export const getWeatherInfo = (code: number, isNight: boolean = false) => {
 export const fetchWeather = async (lat: number, lon: number): Promise<WeatherData | null> => {
   try {
     // Open-Meteo API (Gratuito, sem API Key, CORS enabled)
+    // daily retorna 7 dias por padrão
     const response = await fetch(
       `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,weather_code,is_day&daily=weather_code,temperature_2m_max,temperature_2m_min&timezone=auto`
     );
@@ -43,6 +45,21 @@ export const fetchWeather = async (lat: number, lon: number): Promise<WeatherDat
     if (!response.ok) throw new Error("Weather API Error");
 
     const data = await response.json();
+
+    // Gerar resumo da semana (próximos 5 dias)
+    let weekSummary = "";
+    if (data.daily && data.daily.time) {
+        const days = data.daily.time.slice(0, 5); // Hoje + 4 dias
+        weekSummary = days.map((time: string, index: number) => {
+            const date = new Date(time);
+            const weekday = date.toLocaleDateString('pt-BR', { weekday: 'short' });
+            const max = Math.round(data.daily.temperature_2m_max[index]);
+            const min = Math.round(data.daily.temperature_2m_min[index]);
+            const code = data.daily.weather_code[index];
+            const label = getWeatherInfo(code).label;
+            return `${weekday}: ${min}°/${max}° (${label})`;
+        }).join('; ');
+    }
 
     return {
       current: {
@@ -58,7 +75,9 @@ export const fetchWeather = async (lat: number, lon: number): Promise<WeatherDat
         min: Math.round(data.daily.temperature_2m_min[1]),
         max: Math.round(data.daily.temperature_2m_max[1]),
         code: data.daily.weather_code[1]
-      }
+      },
+      weekSummary: weekSummary,
+      locationName: "" // Será preenchido externamente
     };
   } catch (error) {
     console.error("Erro ao buscar clima:", error);

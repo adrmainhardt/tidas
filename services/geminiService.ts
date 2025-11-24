@@ -1,10 +1,11 @@
 
+
 import { GoogleGenAI } from "@google/genai";
 import { FormSubmission } from "../types";
 
 export const analyzeForms = async (forms: FormSubmission[]): Promise<string> => {
   try {
-    if (!process.env.API_KEY) return "Chave de API não configurada.";
+    if (!process.env.API_KEY) return "Erro: API Key não configurada no arquivo .env ou ambiente.";
 
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
     
@@ -25,9 +26,9 @@ export const analyzeForms = async (forms: FormSubmission[]): Promise<string> => 
     });
 
     return response.text || "Análise indisponível.";
-  } catch (error) {
+  } catch (error: any) {
     console.error("Erro Gemini Forms:", error);
-    return "Erro na IA.";
+    return `Erro: ${error.message || 'Falha na IA'}`;
   }
 };
 
@@ -40,33 +41,39 @@ export const generateDashboardInsight = async (context: {
     weather?: string
 }): Promise<string> => {
     try {
+        // Verificação explícita da chave antes de tentar chamar
+        // Isso é crucial para debug no celular
         if (!process.env.API_KEY) {
-            throw new Error("API Key ausente/inválida.");
+            throw new Error("API_KEY não encontrada. Verifique as variáveis de ambiente ou o arquivo .env.");
         }
 
         const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
         const siteText = context.sites?.length ? context.sites.join(', ') : "Todos online.";
-        const formText = context.forms?.length ? context.forms.join('; ') : "Sem mensagens críticas.";
-        const emailText = context.emails?.length ? context.emails.join('; ') : "Caixa de entrada limpa.";
-        const eventText = context.events?.length ? context.events.join('; ') : "Agenda livre.";
-        const trelloText = context.trello > 0 ? `${context.trello} tarefas pendentes.` : "Tudo em dia no Trello.";
-        const weatherText = context.weather || "Clima não informado.";
+        const formText = context.forms?.length ? context.forms.join('; ') : "Sem mensagens novas.";
+        const emailText = context.emails?.length ? context.emails.join('; ') : "Sem e-mails urgentes.";
+        const eventText = context.events?.length ? context.events.join('; ') : "Agenda livre hoje.";
+        const trelloText = context.trello > 0 ? `${context.trello} tarefas pendentes.` : "Sem pendências no Trello.";
+        const weatherText = context.weather || "Dados de clima indisponíveis.";
 
         const prompt = `
-        Atue como um assistente executivo de elite. Analise TODOS os dados abaixo para gerar um "Briefing Matinal" estratégico e direto (máximo 3 frases curtas).
+        Você é um assistente pessoal inteligente (Briefing Executivo).
+        
+        DADOS ATUAIS:
+        1. Clima e Previsão Semanal: ${weatherText}
+        2. Agenda Hoje: ${eventText}
+        3. Status Sites: ${siteText}
+        4. Mensagens/Emails Recentes: ${formText} // ${emailText}
+        5. Tarefas Pendentes: ${trelloText}
 
-        DADOS:
-        - Clima/Previsão: ${weatherText}
-        - Agenda: ${eventText}
-        - Sites: ${siteText}
-        - Mensagens/Emails: ${formText} // ${emailText}
-        - Tarefas: ${trelloText}
-
-        INSTRUÇÃO:
-        1. Comece comentando o clima e como ele afeta o dia (ex: "Dia chuvoso, ideal para focar no escritório").
-        2. Destaque o compromisso ou problema mais urgente (Sites offline > Reuniões > Emails).
-        3. Termine com uma frase motivadora ou de foco.
+        OBJETIVO:
+        Gere um resumo curto (máximo 3 a 4 linhas) em texto corrido.
+        
+        REGRAS:
+        - OBRIGATÓRIO: Relacione o clima da semana com a agenda/tarefas se houver eventos relevantes (ex: "Chuva na terça pode afetar a reunião externa...").
+        - Se houver previsão de mudança drástica de tempo na semana, avise.
+        - Priorize problemas críticos (Site Offline) acima de tudo.
+        - Tom de voz: Profissional e direto.
         `;
 
         const response = await ai.models.generateContent({
@@ -75,22 +82,24 @@ export const generateDashboardInsight = async (context: {
         });
 
         if (!response.text) {
-            throw new Error("Resposta vazia da IA.");
+            throw new Error("A IA retornou uma resposta vazia.");
         }
 
         return response.text;
     } catch (error: any) {
         console.error("Erro detalhado Insight:", error);
         
-        let msg = "Insight indisponível.";
-        // Tenta extrair mensagens de erro mais úteis para o usuário mobile
-        if (error.message) {
-            if (error.message.includes("API Key")) msg = "Erro: Chave API ausente.";
-            else if (error.message.includes("Quota")) msg = "Limite de uso da IA atingido.";
-            else if (error.message.includes("Failed to fetch")) msg = "Sem conexão com a IA.";
-            else if (error.toString().includes("403")) msg = "Acesso negado à IA (403).";
+        // Retorna o erro REAL para facilitar o debug na tela do usuário no celular
+        let message = error.message || error.toString();
+        
+        if (message.includes("API key not valid") || message.includes("API_KEY")) {
+            throw new Error("Chave de API inválida ou ausente.");
         }
         
-        throw new Error(msg);
+        if (message.includes("fetch")) {
+             throw new Error("Erro de conexão. Verifique a internet.");
+        }
+
+        throw new Error(message);
     }
 }

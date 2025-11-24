@@ -1,4 +1,5 @@
 
+
 export enum SiteStatus {
   ONLINE = 'ONLINE',
   OFFLINE = 'OFFLINE',
@@ -102,6 +103,7 @@ export interface WeatherData {
     max: number;
     code: number;
   };
+  weekSummary?: string; // Resumo textual dos próximos dias
   locationName?: string;
 }
 

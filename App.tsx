@@ -1,4 +1,5 @@
 
+
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { DEFAULT_SITES, MOCK_FORMS, GOOGLE_CLIENT_ID, TRELLO_API_KEY, TRELLO_TOKEN } from './constants';
 import { SiteConfig, SiteStatus, ViewState, FormSubmission, EmailMessage, TrelloBoard, TrelloList, TrelloCard, CalendarEvent, WeatherData, DashboardPrefs } from './types';
@@ -498,12 +499,18 @@ const App: React.FC = () => {
     const now = new Date();
     const todayEvents = events.filter(e => isSameDay(e.start, now));
     
-    // Preparar texto do clima
-    let weatherText = "Dados meteorológicos não disponíveis.";
+    // Preparar texto do clima robusto com previsão semanal
+    let weatherText = "Clima não informado (ative a localização).";
     if (weather) {
         const currentInfo = getWeatherInfo(weather.current.code);
-        const todayInfo = getWeatherInfo(weather.today.code);
-        weatherText = `Em ${weather.locationName || 'sua região'}: Agora faz ${weather.current.temp}°C (${currentInfo.label}). Hoje Máx ${weather.today.max}°/Min ${weather.today.min}° (${todayInfo.label}). Amanhã Máx ${weather.tomorrow.max}°/Min ${weather.tomorrow.min}°.`;
+        
+        // Construção da string com resumo semanal se disponível
+        let weekContext = "";
+        if (weather.weekSummary) {
+            weekContext = `Previsão próxima semana: ${weather.weekSummary}.`;
+        }
+
+        weatherText = `Local: ${weather.locationName || 'Atual'}. Agora: ${weather.current.temp}°C (${currentInfo.label}). Hoje Max/Min: ${weather.today.max}°/${weather.today.min}°. Amanhã Max/Min: ${weather.tomorrow.max}°/${weather.tomorrow.min}°. ${weekContext}`;
     }
 
     const context = {
@@ -617,16 +624,17 @@ const App: React.FC = () => {
             <div className="relative z-10 mt-1">
                 {insightError ? (
                     <div className="p-2 bg-rose-500/10 rounded border border-rose-500/20">
-                        <p className="text-xs text-rose-300 font-bold mb-1">Não foi possível gerar.</p>
-                        <p className="text-[10px] text-rose-400">{insightError}</p>
+                        <p className="text-[10px] text-rose-300 font-bold mb-1 flex items-center gap-1"><AlertTriangle className="w-3 h-3"/> Erro ao gerar:</p>
+                        <p className="text-[10px] text-rose-400 leading-tight break-words">{insightError}</p>
+                        {insightError.includes('Key') && <p className="text-[9px] text-rose-500 mt-1">Verifique se a API_KEY está configurada corretamente na build.</p>}
                     </div>
                 ) : insightResult ? (
-                    <p className="text-xs text-slate-300 leading-relaxed animate-fade-in">
+                    <p className="text-xs text-slate-300 leading-relaxed animate-fade-in whitespace-pre-line">
                         {insightResult}
                     </p>
                 ) : (
                     <p className="text-xs text-slate-400 italic">
-                        Toque aqui para gerar um resumo do seu dia com IA (Clima, Agenda e Alertas).
+                        Toque aqui para gerar um resumo com IA (Clima semanal, Agenda e Alertas).
                     </p>
                 )}
             </div>

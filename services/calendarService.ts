@@ -1,10 +1,9 @@
 
-
 import { CalendarEvent } from "../types";
 
 const CALENDAR_API_BASE = 'https://www.googleapis.com/calendar/v3';
 
-export const fetchCalendarEvents = async (accessToken: string, calendarIds: string[]): Promise<CalendarEvent[]> => {
+export const fetchCalendarEvents = async (auth: { token?: string | null, apiKey?: string }, calendarIds: string[]): Promise<CalendarEvent[]> => {
   try {
     const now = new Date();
     
@@ -17,33 +16,49 @@ export const fetchCalendarEvents = async (accessToken: string, calendarIds: stri
     const endOfNextMonth = new Date(now.getFullYear(), now.getMonth() + 2, 0);
     const timeMax = endOfNextMonth.toISOString();
 
-    // Se a lista estiver vazia, usa o primário por padrão
-    const targets = calendarIds.length > 0 ? calendarIds : ['primary'];
+    // IDs para buscar
+    const targets = [...calendarIds];
     
-    // Adiciona sempre feriados brasileiros se não estiver na lista
-    const holidaysId = 'pt-br.brazilian#holiday@group.v.calendar.google.com';
-    if (!targets.includes(holidaysId) && !targets.some(id => id.includes('holiday'))) {
-        targets.push(holidaysId);
+    // Adiciona 'primary' se tiver token, mas não se for apenas API Key
+    if (auth.token && !targets.includes('primary')) {
+        targets.push('primary');
     }
 
-    console.log("Buscando agendas:", targets);
+    console.log("Buscando agendas:", targets, "Auth:", auth.token ? "Token" : "API Key");
 
     const allEventsPromises = targets.map(async (calId) => {
-      // singleEvents=true expande eventos recorrentes
-      const url = `${CALENDAR_API_BASE}/calendars/${encodeURIComponent(calId)}/events?timeMin=${timeMin}&timeMax=${timeMax}&singleEvents=true&orderBy=startTime&maxResults=50&_=${Date.now()}`;
+      // Se não tem token, não adianta tentar ler 'primary' (privado)
+      if (!auth.token && calId === 'primary') return [];
+
+      // URL Base
+      let url = `${CALENDAR_API_BASE}/calendars/${encodeURIComponent(calId)}/events?timeMin=${timeMin}&timeMax=${timeMax}&singleEvents=true&orderBy=startTime&maxResults=50&_=${Date.now()}`;
       
+      // Headers
+      const headers: HeadersInit = {};
+      
+      if (auth.token) {
+          headers['Authorization'] = `Bearer ${auth.token}`;
+      } else if (auth.apiKey) {
+          // Se não tem token, usa a API Key na URL
+          url += `&key=${auth.apiKey}`;
+      } else {
+          // Sem auth nenhuma, pula
+          return [];
+      }
+
       try {
-          const res = await fetch(url, {
-            headers: { Authorization: `Bearer ${accessToken}` }
-          });
+          const res = await fetch(url, { headers });
 
           if (!res.ok) {
-              console.warn(`Falha ao ler calendário ${calId}: ${res.status}`);
+              // Ignora erros de permissão (403) silenciosamente
+              if (res.status !== 403 && res.status !== 404) {
+                  console.warn(`Falha ao ler calendário ${calId}: ${res.status}`);
+              }
               return [];
           }
           
           const data = await res.json();
-          // Tenta usar o summary do calendario como nome da fonte, ou o ID
+          // Marca a origem do evento
           return (data.items || []).map((item: any) => ({ ...item, _sourceName: data.summary || calId }));
       } catch (e) {
           console.error(`Exceção ao ler calendário ${calId}`, e);
@@ -56,7 +71,6 @@ export const fetchCalendarEvents = async (accessToken: string, calendarIds: stri
 
     // Processamento e normalização dos dados
     const processedEvents: CalendarEvent[] = rawEvents.map((item: any) => {
-      // Datas: Google retorna 'dateTime' para eventos pontuais e 'date' para dia inteiro
       const startStr = item.start.dateTime || item.start.date;
       const endStr = item.end.dateTime || item.end.date;
       
@@ -81,7 +95,7 @@ export const fetchCalendarEvents = async (accessToken: string, calendarIds: stri
       };
     });
 
-    // Remove duplicatas (mesmo ID e mesmo horário de início)
+    // Remove duplicatas
     const uniqueEvents = Array.from(new Map(processedEvents.map(item => [item.id + item.start.getTime(), item])).values());
 
     return uniqueEvents.sort((a, b) => a.start.getTime() - b.start.getTime());

@@ -112,10 +112,8 @@ export interface DashboardPrefs {
   showTrello: boolean;
   showGoogle: boolean;
   showWeather: boolean;
-  // Configuração de Agenda
-  calendarMode: 'api' | 'embed';
-  calendarEmbedUrl?: string;
-  calendarIds: string[]; // Lista de IDs de calendário para monitorar via API
+  // Configuração de Agenda Simplificada
+  calendarIds: string[]; // Lista de IDs de calendário para monitorar
 }
 
 export enum ViewState {

@@ -1,5 +1,6 @@
+
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { DEFAULT_SITES, MOCK_FORMS, GOOGLE_CLIENT_ID, TRELLO_API_KEY, TRELLO_TOKEN } from './constants';
+import { DEFAULT_SITES, MOCK_FORMS, GOOGLE_CLIENT_ID, TRELLO_API_KEY, TRELLO_TOKEN, FALLBACK_API_KEY } from './constants';
 import { SiteConfig, SiteStatus, ViewState, FormSubmission, EmailMessage, TrelloBoard, TrelloList, TrelloCard, CalendarEvent, WeatherData, DashboardPrefs } from './types';
 import MonitorCard from './components/MonitorCard';
 import InboxItem from './components/InboxItem';
@@ -126,14 +127,12 @@ const App: React.FC = () => {
   const [isSideMenuOpen, setIsSideMenuOpen] = useState(false);
   const [isConfigModalOpen, setIsConfigModalOpen] = useState(false);
 
-  const [dashPrefs, setDashPrefs] = usePersistedState<DashboardPrefs>('dashboard_prefs_v7', {
+  const [dashPrefs, setDashPrefs] = usePersistedState<DashboardPrefs>('dashboard_prefs_v10', {
       showSites: true,
       showTrello: true,
       showGoogle: true,
       showWeather: true,
-      calendarMode: 'api',
-      calendarEmbedUrl: '',
-      calendarIds: ['primary', 'design02@tidas.com.br']
+      calendarIds: ['design02@tidas.com.br']
   });
 
   const [trelloKey, setTrelloKey] = usePersistedState<string>('monitor_trello_key_v3', TRELLO_API_KEY);
@@ -350,28 +349,31 @@ const App: React.FC = () => {
   };
 
   const fetchGoogleData = async (tokenOverride?: string) => {
-    const token = tokenOverride || googleToken;
-    if (!token) return;
+    if (!tokenOverride && !googleToken && dashPrefs.calendarIds.length === 0) return;
     
     setIsLoadingGoogle(true);
     try {
-      const messages = await fetchGmailMessages(token, 80);
-      setApiNotEnabled(false);
+      const currentToken = tokenOverride || googleToken;
 
-      const currentUnread = messages.filter(m => m.isUnread);
-      const newUnread = currentUnread.filter(m => !prevEmailIdsRef.current.includes(m.id));
+      if (currentToken) {
+          const messages = await fetchGmailMessages(currentToken, 80);
+          setApiNotEnabled(false);
 
-      if (prevEmailIdsRef.current.length > 0 && newUnread.length > 0) {
-         sendNotification('Novo E-mail', `${newUnread.length} novo(s) e-mail(s).`);
+          const currentUnread = messages.filter(m => m.isUnread);
+          const newUnread = currentUnread.filter(m => !prevEmailIdsRef.current.includes(m.id));
+
+          if (prevEmailIdsRef.current.length > 0 && newUnread.length > 0) {
+             sendNotification('Novo E-mail', `${newUnread.length} novo(s) e-mail(s).`);
+          }
+          prevEmailIdsRef.current = messages.map(m => m.id);
+          setEmails(messages);
       }
-      prevEmailIdsRef.current = messages.map(m => m.id);
-      setEmails(messages);
 
-      // Agora passa a lista de IDs configurada
-      if (dashPrefs.calendarMode === 'api') {
-          const calendarEvents = await fetchCalendarEvents(token, dashPrefs.calendarIds);
-          setEvents(calendarEvents);
-      }
+      const calendarEvents = await fetchCalendarEvents(
+          { token: currentToken, apiKey: FALLBACK_API_KEY }, 
+          dashPrefs.calendarIds || []
+      );
+      setEvents(calendarEvents);
 
     } catch (error: any) {
       console.error("Erro Google:", error);
@@ -397,11 +399,11 @@ const App: React.FC = () => {
   const handleDisconnectGoogle = () => {
     setGoogleToken(null);
     setEmails([]);
-    setEvents([]);
     setAuthError(false);
     if (window.google && googleToken) {
       try { window.google.accounts.oauth2.revoke(googleToken, () => {}); } catch (e) {}
     }
+    fetchGoogleData(undefined);
   };
 
   const loadTrelloBoards = async () => {
@@ -547,7 +549,7 @@ const App: React.FC = () => {
        if (isMounted) {
          await checkAllSites();
          await syncForms();
-         if (googleToken) fetchGoogleData(googleToken);
+         fetchGoogleData(googleToken || undefined);
          
          if (trelloKey && trelloToken && trelloListIds.length > 0) {
             try {
@@ -566,7 +568,7 @@ const App: React.FC = () => {
       if (isMounted) {
         await syncForms();
         setSites(await Promise.all(sitesRef.current.map(site => checkSiteStatus(site))));
-        if (googleToken) fetchGoogleData(googleToken);
+        fetchGoogleData(googleToken || undefined);
         if (trelloKey && trelloToken && trelloListIds.length > 0) fetchTrelloCards();
       }
     }, 10000);
@@ -585,7 +587,7 @@ const App: React.FC = () => {
         clearInterval(intervalId); 
         document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
-  }, [googleToken, dashPrefs.showWeather, loadWeather]); 
+  }, [googleToken, dashPrefs.showWeather, loadWeather, dashPrefs.calendarIds]); 
 
   const handleMarkAsRead = (id: string) => {
     if (!readFormIds.includes(id)) {
@@ -697,11 +699,7 @@ const App: React.FC = () => {
               <div onClick={() => handleNavigation(ViewState.GOOGLE, 'calendar')} className="bg-slate-800 p-4 rounded-2xl border border-slate-700 shadow-sm cursor-pointer active:scale-95 transition-all">
                 <div className="flex items-center gap-2 mb-2 text-indigo-400"><CalendarDays className="w-4 h-4" /><span className="text-xs font-semibold">AGENDA</span></div>
                 <div className="text-2xl font-bold text-slate-100">
-                    {dashPrefs.calendarMode === 'embed' ? (
-                        <ExternalLink className="w-5 h-5 text-slate-300" />
-                    ) : (
-                        googleToken ? todayEventsCount : <LogIn className="w-5 h-5 text-slate-500" />
-                    )}
+                    {todayEventsCount}
                 </div>
               </div>
             </>
@@ -837,11 +835,13 @@ const App: React.FC = () => {
              <div className="flex flex-col mb-4 px-1">
                  <div className="flex justify-between items-center mb-4">
                     <h2 className="text-xl font-bold text-slate-100">Workspace</h2>
-                    {googleToken && (
+                    {googleToken ? (
                       <div className="flex gap-2">
                           <button onClick={handleDisconnectGoogle} className="p-2 text-slate-500 hover:text-rose-400"><LogOut className="w-5 h-5" /></button>
                           <button onClick={() => fetchGoogleData(googleToken)} className={`p-2 bg-blue-500/20 text-blue-400 rounded-full ${isLoadingGoogle ? 'animate-spin' : ''}`}><RefreshCw className="w-4 h-4" /></button>
                       </div>
+                    ) : (
+                      <button onClick={handleConnectGoogle} className="px-3 py-1 bg-blue-600/20 text-blue-400 text-xs rounded-lg hover:bg-blue-600/30 flex items-center gap-1"><LogIn className="w-3 h-3"/> Conectar Conta</button>
                     )}
                  </div>
                  
@@ -872,82 +872,58 @@ const App: React.FC = () => {
              )}
 
              {googleSubTab === 'calendar' && (
-                dashPrefs.calendarMode === 'embed' ? (
-                    <div className="h-[70vh] bg-white rounded-lg overflow-hidden border border-slate-700 relative">
-                        {!dashPrefs.calendarEmbedUrl ? (
-                            <div className="absolute inset-0 flex flex-col items-center justify-center text-slate-800 p-6 text-center">
-                                <Calendar className="w-12 h-12 text-slate-400 mb-4" />
-                                <h3 className="font-bold mb-2">Agenda não configurada</h3>
-                                <p className="text-sm text-slate-500 mb-4">
-                                    Para visualizar sua agenda aqui, vá nas configurações do app e cole a URL de Incorporação (Embed) do Google Calendar.
-                                </p>
-                                <button onClick={() => setIsConfigModalOpen(true)} className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-bold">
-                                    Configurar Agora
-                                </button>
-                            </div>
-                        ) : (
-                            <iframe 
-                                src={dashPrefs.calendarEmbedUrl} 
-                                style={{border: 0}} 
-                                width="100%" 
-                                height="100%" 
-                                frameBorder="0" 
-                                scrolling="no"
-                            ></iframe>
-                        )}
-                    </div>
-                ) : (
-                    !googleToken ? renderGoogleLogin('Agenda') : (
-                      <div className="space-y-6">
-                           {events.length === 0 && !isLoadingGoogle && (
-                               <div className="mb-6 p-6 bg-slate-800/50 rounded-xl text-center border border-slate-700/50 flex flex-col items-center">
-                                   <CalendarDays className="w-10 h-10 text-slate-600 mb-3" />
-                                   <p className="text-sm text-slate-400">Sua agenda está livre ou não pôde ser carregada via API.</p>
-                                   <button onClick={() => fetchGoogleData(googleToken)} className="mt-4 text-xs text-blue-400 hover:underline">Tentar novamente</button>
-                                   <button onClick={() => setDashPrefs(p => ({ ...p, calendarMode: 'embed' }))} className="mt-4 text-xs text-slate-500 hover:text-white border border-slate-700 px-3 py-1 rounded">
-                                       Mudar para Modo Incorporado
-                                   </button>
-                               </div>
-                           )}
-    
-                           {sortedDateKeys.map(dateKey => {
-                               const dateObj = new Date(dateKey);
-                               const isToday = isSameDay(dateObj, now);
-                               const isTmrw = isTomorrow(dateObj, now);
-                               
-                               let label = dateObj.toLocaleDateString('pt-BR', { day: 'numeric', month: 'long', weekday: 'long' });
-                               let badgeColor = 'bg-slate-700';
-                               
-                               if (isToday) {
-                                   label = "Hoje";
-                                   badgeColor = "bg-blue-600";
-                               } else if (isTmrw) {
-                                   label = "Amanhã";
-                                   badgeColor = "bg-indigo-600";
-                               }
-    
-                               return (
-                                   <div key={dateKey}>
-                                       <div className="flex items-center gap-3 mb-3 px-1">
-                                           <span className={`text-[10px] font-bold text-white px-2 py-0.5 rounded-md uppercase tracking-wide ${badgeColor}`}>
-                                               {label === "Hoje" || label === "Amanhã" ? label : dateObj.toLocaleDateString('pt-BR', { day: 'numeric', month: 'short' }).toUpperCase()}
+                <div className="space-y-6">
+                       {/* Mostra login apenas se não tiver eventos E não tiver token */}
+                       {events.length === 0 && !isLoadingGoogle && !googleToken && (
+                           <div className="mb-6 p-6 bg-slate-800/50 rounded-xl text-center border border-slate-700/50 flex flex-col items-center">
+                               <CalendarDays className="w-10 h-10 text-slate-600 mb-3" />
+                               <p className="text-sm text-slate-400 mb-4">Faça login para ver sua agenda pessoal ou adicione links de agendas públicas.</p>
+                               <button onClick={handleConnectGoogle} className="w-full bg-white text-slate-900 font-bold py-3 rounded-xl flex items-center justify-center gap-2 hover:bg-slate-100">
+                                  <img src="https://www.google.com/favicon.ico" className="w-4 h-4"/> Conectar
+                               </button>
+                           </div>
+                       )}
+
+                       {events.length === 0 && googleToken && !isLoadingGoogle && (
+                           <p className="text-center text-slate-500 py-10">Nenhum evento encontrado.</p>
+                       )}
+
+                       {sortedDateKeys.map(dateKey => {
+                           const dateObj = new Date(dateKey);
+                           const isToday = isSameDay(dateObj, now);
+                           const isTmrw = isTomorrow(dateObj, now);
+                           
+                           let label = dateObj.toLocaleDateString('pt-BR', { day: 'numeric', month: 'long', weekday: 'long' });
+                           let badgeColor = 'bg-slate-700';
+                           
+                           if (isToday) {
+                               label = "Hoje";
+                               badgeColor = "bg-blue-600";
+                           } else if (isTmrw) {
+                               label = "Amanhã";
+                               badgeColor = "bg-indigo-600";
+                           }
+
+                           return (
+                               <div key={dateKey}>
+                                   <div className="flex items-center gap-3 mb-3 px-1">
+                                       <span className={`text-[10px] font-bold text-white px-2 py-0.5 rounded-md uppercase tracking-wide ${badgeColor}`}>
+                                           {label === "Hoje" || label === "Amanhã" ? label : dateObj.toLocaleDateString('pt-BR', { day: 'numeric', month: 'short' }).toUpperCase()}
+                                       </span>
+                                       {label !== "Hoje" && label !== "Amanhã" && (
+                                           <span className="text-xs text-slate-500 capitalize">
+                                               {dateObj.toLocaleDateString('pt-BR', { weekday: 'long' })}
                                            </span>
-                                           {label !== "Hoje" && label !== "Amanhã" && (
-                                               <span className="text-xs text-slate-500 capitalize">
-                                                   {dateObj.toLocaleDateString('pt-BR', { weekday: 'long' })}
-                                               </span>
-                                           )}
-                                           <div className="h-px bg-slate-800 flex-1"></div>
-                                       </div>
-                                       {groupedEvents[dateKey].map(evt => (
-                                           <CalendarEventItem key={evt.id} event={evt} />
-                                       ))}
+                                       )}
+                                       <div className="h-px bg-slate-800 flex-1"></div>
                                    </div>
-                               );
-                           })}
-                      </div>
-                    )
-                )
+                                   {groupedEvents[dateKey].map(evt => (
+                                       <CalendarEventItem key={evt.id} event={evt} />
+                                   ))}
+                               </div>
+                           );
+                       })}
+                  </div>
              )}
         </div>
     );
@@ -1044,7 +1020,7 @@ const App: React.FC = () => {
         onToggleNotifications={requestNotificationPermission}
         locationEnabled={!weatherPermissionDenied}
         onToggleLocation={loadWeather}
-        onUpdateCalendar={(mode, url, ids) => setDashPrefs(prev => ({ ...prev, calendarMode: mode, calendarEmbedUrl: url, calendarIds: ids || [] }))}
+        onUpdateCalendar={(ids) => setDashPrefs(prev => ({ ...prev, calendarIds: ids || [] }))}
       />
 
       {selectedFormId && (

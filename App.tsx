@@ -9,14 +9,13 @@ import EmailDetailsModal from './components/EmailDetailsModal';
 import TrelloCardItem from './components/TrelloCardItem';
 import CalendarEventItem from './components/CalendarEventItem';
 import WeatherWidget from './components/WeatherWidget';
-import TrafficWidget from './components/TrafficWidget'; 
 import SideMenu from './components/SideMenu'; 
 import ConfigModal from './components/ConfigModal'; 
 import { fetchFormsFromWP, fetchSiteStats } from './services/wpService';
 import { fetchGmailMessages } from './services/gmailService';
 import { fetchCalendarEvents } from './services/calendarService';
 import { fetchBoards, fetchLists, fetchCardsFromList } from './services/trelloService';
-import { generateDashboardInsight, calculateCommuteTime } from './services/geminiService'; 
+import { generateDashboardInsight } from './services/geminiService'; 
 import { fetchWeather, fetchLocationName, getWeatherInfo } from './services/weatherService';
 import { Activity, RefreshCw, AlertTriangle, WifiOff, Trash2, BarChart3, Mail, LogIn, LogOut, Copy, Info, Check, Trello, Settings, CheckSquare, ExternalLink, HelpCircle, Bell, CalendarDays, Calendar, Sparkles, X, Globe, MessageSquareText, Save, Send, User, ChevronDown, ChevronUp, AlertOctagon, Menu } from 'lucide-react';
 
@@ -124,20 +123,17 @@ const App: React.FC = () => {
   const [insightError, setInsightError] = useState<string | null>(null);
   const [isLoadingInsight, setIsLoadingInsight] = useState(false);
 
-  // Estado para o trânsito
-  const [trafficTime, setTrafficTime] = useState<string | null>(null);
-
   const [isSideMenuOpen, setIsSideMenuOpen] = useState(false);
   const [isConfigModalOpen, setIsConfigModalOpen] = useState(false);
 
-  const [dashPrefs, setDashPrefs] = usePersistedState<DashboardPrefs>('dashboard_prefs_v5', {
+  const [dashPrefs, setDashPrefs] = usePersistedState<DashboardPrefs>('dashboard_prefs_v7', {
       showSites: true,
       showTrello: true,
       showGoogle: true,
       showWeather: true,
-      showTraffic: true, 
       calendarMode: 'api',
-      calendarEmbedUrl: ''
+      calendarEmbedUrl: '',
+      calendarIds: ['primary', 'design02@tidas.com.br']
   });
 
   const [trelloKey, setTrelloKey] = usePersistedState<string>('monitor_trello_key_v3', TRELLO_API_KEY);
@@ -227,52 +223,6 @@ const App: React.FC = () => {
     }
   }, []);
 
-  // Traffic Effect - Memorizado com GPS Real
-  const fetchTraffic = useCallback(async () => {
-     if (!dashPrefs.showTraffic) return;
-     
-     setTrafficTime("Localizando...");
-
-     // Verifica se o navegador suporta geolocalização
-     if (!('geolocation' in navigator)) {
-         setTrafficTime("Sem GPS");
-         return;
-     }
-
-     navigator.geolocation.getCurrentPosition(
-        async (position) => {
-            const { latitude, longitude } = position.coords;
-            setTrafficTime("Calculando...");
-            try {
-                // Passa coordenadas para o serviço Gemini
-                const time = await calculateCommuteTime({ lat: latitude, lng: longitude });
-                setTrafficTime(time);
-            } catch (error) {
-                console.error("Erro ao calcular tempo:", error);
-                setTrafficTime("Erro");
-            }
-        },
-        (error) => {
-            console.warn("Permissão de GPS negada para trânsito:", error);
-            // Fallback: Tenta calcular sem coordenadas (vai usar um centro genérico) mas avisa erro de permissão
-            setTrafficTime("Permissão GPS Negada");
-            // Tenta uma estimativa genérica como fallback secundário após 2s
-            setTimeout(async () => {
-               const time = await calculateCommuteTime(); // Chama sem coords
-               if (time && !time.includes('Erro')) setTrafficTime(`${time} (Genérico)`);
-            }, 2000);
-        },
-        { enableHighAccuracy: true, timeout: 15000, maximumAge: 60000 }
-     );
-  }, [dashPrefs.showTraffic]);
-
-  // Carrega trânsito na montagem se habilitado
-  useEffect(() => {
-     if (dashPrefs.showTraffic) {
-         fetchTraffic();
-     }
-  }, [fetchTraffic, dashPrefs.showTraffic]);
-
   const loadWeather = useCallback(() => {
     if (!('geolocation' in navigator)) return;
     
@@ -281,14 +231,19 @@ const App: React.FC = () => {
 
     navigator.geolocation.getCurrentPosition(
       async (position) => {
-        const { latitude, longitude } = position.coords;
-        const weatherData = await fetchWeather(latitude, longitude);
-        const locationName = await fetchLocationName(latitude, longitude);
-        
-        if (weatherData) {
-          setWeather({ ...weatherData, locationName });
+        try {
+          const { latitude, longitude } = position.coords;
+          const weatherData = await fetchWeather(latitude, longitude);
+          const locationName = await fetchLocationName(latitude, longitude);
+          
+          if (weatherData) {
+            setWeather({ ...weatherData, locationName });
+          }
+        } catch (e) {
+          // Falha silenciosa, mantém loading false
+        } finally {
+          setLoadingWeather(false);
         }
-        setLoadingWeather(false);
       },
       (error) => {
         console.warn("Geo Error:", error);
@@ -412,9 +367,9 @@ const App: React.FC = () => {
       prevEmailIdsRef.current = messages.map(m => m.id);
       setEmails(messages);
 
-      // Só busca eventos se estiver no modo API
+      // Agora passa a lista de IDs configurada
       if (dashPrefs.calendarMode === 'api') {
-          const calendarEvents = await fetchCalendarEvents(token);
+          const calendarEvents = await fetchCalendarEvents(token, dashPrefs.calendarIds);
           setEvents(calendarEvents);
       }
 
@@ -616,12 +571,10 @@ const App: React.FC = () => {
       }
     }, 10000);
 
-    // CRITICAL FIX: Re-check when app becomes visible (e.g. unlocking phone, switching tabs)
     const handleVisibilityChange = () => {
         if (document.visibilityState === 'visible') {
             console.log("App foreground: refreshing data...");
             checkAllSites();
-            if (dashPrefs.showTraffic) fetchTraffic();
             if (dashPrefs.showWeather) loadWeather();
         }
     };
@@ -632,7 +585,7 @@ const App: React.FC = () => {
         clearInterval(intervalId); 
         document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
-  }, [googleToken, dashPrefs.showTraffic, dashPrefs.showWeather, fetchTraffic, loadWeather]); 
+  }, [googleToken, dashPrefs.showWeather, loadWeather]); 
 
   const handleMarkAsRead = (id: string) => {
     if (!readFormIds.includes(id)) {
@@ -708,15 +661,6 @@ const App: React.FC = () => {
             </div>
         </div>
 
-        {dashPrefs.showTraffic && (
-          <TrafficWidget 
-            origin="Localização Atual" 
-            destination="Casa" 
-            info={trafficTime} 
-            onRefresh={fetchTraffic}
-          />
-        )}
-
         {notifPermission === 'default' && (
            <button onClick={requestNotificationPermission} className="w-full bg-blue-600/20 text-blue-300 text-xs font-bold p-3 rounded-xl border border-blue-600/30 flex items-center justify-center gap-2">
               <Bell className="w-4 h-4" /> ATIVAR NOTIFICAÇÕES
@@ -785,7 +729,7 @@ const App: React.FC = () => {
           </div>
         )}
         
-        {!dashPrefs.showSites && !dashPrefs.showTrello && !dashPrefs.showGoogle && !dashPrefs.showWeather && !dashPrefs.showTraffic && (
+        {!dashPrefs.showSites && !dashPrefs.showTrello && !dashPrefs.showGoogle && !dashPrefs.showWeather && (
             <div className="text-center py-20 text-slate-500">
                 <p>Personalize sua tela inicial no menu de configurações.</p>
             </div>
@@ -1019,7 +963,7 @@ const App: React.FC = () => {
              </button>
 
              <div className="flex items-center justify-center cursor-pointer" onClick={() => setCurrentView(ViewState.DASHBOARD)}>
-                 <img src="https://tidas.com.br/wp-content/uploads/2025/08/logo_tidas_rodan2.svg" alt="Tidas" className="h-6 w-auto drop-shadow-md" />
+                 <img src="https://tidas.com.br/wp-content/uploads/2025/08/logo_tidas_rodan2.svg" alt="Tidas" className="h-[1.6rem] w-auto drop-shadow-md" />
              </div>
 
              <button onClick={() => setIsConfigModalOpen(true)} className="p-2 -mr-2 text-slate-400 hover:text-white rounded-full hover:bg-slate-800 transition-colors">
@@ -1100,7 +1044,7 @@ const App: React.FC = () => {
         onToggleNotifications={requestNotificationPermission}
         locationEnabled={!weatherPermissionDenied}
         onToggleLocation={loadWeather}
-        onUpdateCalendar={(mode, url) => setDashPrefs(prev => ({ ...prev, calendarMode: mode, calendarEmbedUrl: url }))}
+        onUpdateCalendar={(mode, url, ids) => setDashPrefs(prev => ({ ...prev, calendarMode: mode, calendarEmbedUrl: url, calendarIds: ids || [] }))}
       />
 
       {selectedFormId && (

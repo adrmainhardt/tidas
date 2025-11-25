@@ -1,3 +1,4 @@
+
 import React from 'react';
 import { Car, Clock, MapPin } from 'lucide-react';
 
@@ -9,6 +10,23 @@ interface TrafficWidgetProps {
 }
 
 const TrafficWidget: React.FC<TrafficWidgetProps> = ({ info, onRefresh }) => {
+  // Tratamento de status
+  let displayInfo = info;
+  let statusColor = "text-slate-100";
+  
+  if (!info) displayInfo = "---";
+  if (info === 'LIMIT_REACHED') {
+      displayInfo = "Tente mais tarde";
+      statusColor = "text-amber-400 text-sm";
+  }
+  if (info === 'Erro' || info === 'Erro API') {
+      displayInfo = "Indisponível";
+      statusColor = "text-rose-400 text-lg";
+  }
+  if (info?.includes('...')) {
+      statusColor = "text-lg text-slate-400 animate-pulse";
+  }
+
   return (
     <div 
       onClick={onRefresh}
@@ -27,10 +45,10 @@ const TrafficWidget: React.FC<TrafficWidgetProps> = ({ info, onRefresh }) => {
              <div className="flex flex-col">
                  <div className="flex items-center gap-1 mb-0.5 text-slate-400">
                      <MapPin className="w-3 h-3" />
-                     <span className="text-xs">De sua localização atual</span>
+                     <span className="text-xs">Do Trabalho (Tidas)</span>
                  </div>
-                 <span className={`text-3xl font-bold text-slate-100 ${info?.includes('...') ? 'text-lg text-slate-400 animate-pulse' : ''}`}>
-                     {info && info !== 'LIMIT_REACHED' ? info : (info === 'LIMIT_REACHED' ? 'Indisponível' : (info?.includes('...') ? info : '---'))}
+                 <span className={`text-3xl font-bold ${statusColor}`}>
+                     {displayInfo}
                  </span>
              </div>
              

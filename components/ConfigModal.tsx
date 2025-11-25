@@ -1,7 +1,7 @@
 
 
 import React, { useEffect, useState } from 'react';
-import { X, Settings, Eye, Bell, MapPin, ToggleLeft, ToggleRight, LayoutDashboard, Calendar, Link, Car } from 'lucide-react';
+import { X, Settings, Bell, MapPin, ToggleLeft, ToggleRight, LayoutDashboard, Calendar, Link, Plus, Trash2 } from 'lucide-react';
 import { DashboardPrefs } from '../types';
 
 interface ConfigModalProps {
@@ -13,8 +13,7 @@ interface ConfigModalProps {
   onToggleNotifications: () => void;
   locationEnabled: boolean;
   onToggleLocation: () => void;
-  // Handler extra para agenda
-  onUpdateCalendar: (mode: 'api' | 'embed', url?: string) => void;
+  onUpdateCalendar: (mode: 'api' | 'embed', url?: string, ids?: string[]) => void;
 }
 
 const ConfigModal: React.FC<ConfigModalProps> = ({ 
@@ -27,23 +26,59 @@ const ConfigModal: React.FC<ConfigModalProps> = ({
   
   const [isVisible, setIsVisible] = useState(false);
   const [calUrl, setCalUrl] = useState(preferences.calendarEmbedUrl || '');
+  const [calendarIds, setCalendarIds] = useState<string[]>(preferences.calendarIds || []);
+  const [newCalInput, setNewCalInput] = useState('');
 
   useEffect(() => {
     if (isOpen) {
       setIsVisible(true);
       document.body.style.overflow = 'hidden';
       setCalUrl(preferences.calendarEmbedUrl || '');
+      setCalendarIds(preferences.calendarIds || []);
     } else {
       const timer = setTimeout(() => setIsVisible(false), 300);
       document.body.style.overflow = 'unset';
       return () => clearTimeout(timer);
     }
-  }, [isOpen, preferences.calendarEmbedUrl]);
+  }, [isOpen, preferences]);
 
   if (!isVisible && !isOpen) return null;
 
-  const handleSaveCalendar = () => {
-    onUpdateCalendar(preferences.calendarMode, calUrl);
+  // Extrai ID do calendário de URLs ou retorna o próprio texto
+  const extractCalendarId = (input: string): string => {
+    let clean = input.trim();
+    // Decodifica CID base64 se presente
+    if (clean.includes('cid=')) {
+        try {
+            const urlObj = new URL(clean);
+            const cid = urlObj.searchParams.get('cid');
+            if (cid && /^[A-Za-z0-9+/=]+$/.test(cid)) {
+                const decoded = atob(cid);
+                if (decoded.includes('@')) return decoded;
+            }
+        } catch (e) {}
+    }
+    // Se for email simples ou ID
+    if (clean.includes('@') || clean.includes('#')) return clean;
+    return clean;
+  };
+
+  const handleAddCalendarId = () => {
+      if (!newCalInput) return;
+      const id = extractCalendarId(newCalInput);
+      if (id && !calendarIds.includes(id)) {
+          setCalendarIds([...calendarIds, id]);
+      }
+      setNewCalInput('');
+  };
+
+  const handleRemoveCalendarId = (id: string) => {
+      setCalendarIds(calendarIds.filter(c => c !== id));
+  };
+
+  const handleSave = () => {
+    onUpdateCalendar(preferences.calendarMode, calUrl, calendarIds);
+    onClose();
   };
 
   const ToggleItem = ({ label, icon: Icon, checked, onChange, description }: any) => (
@@ -112,13 +147,6 @@ const ConfigModal: React.FC<ConfigModalProps> = ({
                     checked={preferences.showWeather} 
                     onChange={() => onTogglePreference('showWeather')} 
                 />
-                 <ToggleItem 
-                    label="Tempo de Trânsito" 
-                    icon={Car} 
-                    checked={preferences.showTraffic} 
-                    onChange={() => onTogglePreference('showTraffic')} 
-                    description="Tidas -> Otto Guckert"
-                />
             </div>
 
             <div className="space-y-3">
@@ -128,39 +156,60 @@ const ConfigModal: React.FC<ConfigModalProps> = ({
                         <Calendar className="w-4 h-4 text-indigo-400" />
                         <span className="text-sm font-bold text-slate-200">Modo de Exibição</span>
                     </div>
-                    <div className="flex bg-slate-800 p-1 rounded-lg">
+                    <div className="flex bg-slate-800 p-1 rounded-lg mb-3">
                         <button 
-                            onClick={() => onUpdateCalendar('api', calUrl)}
+                            onClick={() => onUpdateCalendar('api', calUrl, calendarIds)}
                             className={`flex-1 py-1.5 text-xs font-bold rounded-md transition-colors ${preferences.calendarMode === 'api' ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-400 hover:text-slate-200'}`}
                         >
                             API (Login)
                         </button>
                         <button 
-                            onClick={() => onUpdateCalendar('embed', calUrl)}
+                            onClick={() => onUpdateCalendar('embed', calUrl, calendarIds)}
                             className={`flex-1 py-1.5 text-xs font-bold rounded-md transition-colors ${preferences.calendarMode === 'embed' ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-400 hover:text-slate-200'}`}
                         >
                             Incorporado
                         </button>
                     </div>
 
+                    {preferences.calendarMode === 'api' && (
+                        <div className="space-y-2">
+                            <label className="text-[10px] text-slate-400 block">Adicionar Agenda (ID ou Link CID)</label>
+                            <div className="flex gap-2">
+                                <input 
+                                    type="text" 
+                                    value={newCalInput}
+                                    onChange={(e) => setNewCalInput(e.target.value)}
+                                    placeholder="Ex: design02@tidas..."
+                                    className="flex-1 bg-slate-800 border border-slate-700 rounded p-2 text-xs text-slate-200 outline-none"
+                                />
+                                <button onClick={handleAddCalendarId} className="p-2 bg-blue-600 hover:bg-blue-500 text-white rounded">
+                                    <Plus className="w-4 h-4" />
+                                </button>
+                            </div>
+                            <div className="max-h-32 overflow-y-auto space-y-1 pt-2">
+                                {calendarIds.map(id => (
+                                    <div key={id} className="flex justify-between items-center text-xs bg-slate-800 p-2 rounded border border-slate-700">
+                                        <span className="truncate max-w-[180px] text-slate-300">{id}</span>
+                                        <button onClick={() => handleRemoveCalendarId(id)} className="text-rose-400 hover:text-rose-300"><Trash2 className="w-3 h-3"/></button>
+                                    </div>
+                                ))}
+                                {calendarIds.length === 0 && <p className="text-[10px] text-slate-500 italic">Apenas agenda principal.</p>}
+                            </div>
+                        </div>
+                    )}
+
                     {preferences.calendarMode === 'embed' && (
                         <div className="pt-2 border-t border-slate-700/50">
-                            <label className="text-[10px] text-slate-400 block mb-1">URL Pública ou Incorporada (src)</label>
+                            <label className="text-[10px] text-slate-400 block mb-1">URL da Agenda Pública</label>
                             <div className="flex gap-2">
                                 <input 
                                     type="text" 
                                     value={calUrl}
                                     onChange={(e) => setCalUrl(e.target.value)}
-                                    placeholder="https://calendar.google.com/..."
-                                    className="flex-1 bg-slate-800 border border-slate-700 rounded p-2 text-xs text-slate-200 focus:border-indigo-500 outline-none"
+                                    placeholder="https://..."
+                                    className="flex-1 bg-slate-800 border border-slate-700 rounded p-2 text-xs text-slate-200 outline-none"
                                 />
-                                <button onClick={handleSaveCalendar} className="p-2 bg-slate-700 hover:bg-slate-600 text-white rounded">
-                                    <Link className="w-4 h-4" />
-                                </button>
                             </div>
-                            <p className="text-[9px] text-slate-500 mt-1 italic">
-                                Vá em Configurações do Google Agenda {'>'} Integrar Agenda {'>'} Copie a URL
-                            </p>
                         </div>
                     )}
                 </div>
@@ -180,14 +229,14 @@ const ConfigModal: React.FC<ConfigModalProps> = ({
                     icon={MapPin} 
                     checked={locationEnabled} 
                     onChange={onToggleLocation} 
-                    description="Usada para exibir a previsão do tempo."
+                    description="Usada para previsão do tempo e trânsito."
                 />
             </div>
 
         </div>
         
         <div className="p-4 border-t border-slate-700 bg-slate-800/50 text-center pb-safe-area">
-            <button onClick={() => { handleSaveCalendar(); onClose(); }} className="w-full py-3 bg-blue-600 text-white font-bold rounded-xl shadow-lg shadow-blue-900/20 active:scale-95 transition-transform">
+            <button onClick={handleSave} className="w-full py-3 bg-blue-600 text-white font-bold rounded-xl shadow-lg shadow-blue-900/20 active:scale-95 transition-transform">
                 Salvar e Fechar
             </button>
         </div>

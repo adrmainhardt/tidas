@@ -1,13 +1,14 @@
 
+
 import { CalendarEvent } from "../types";
 
 const CALENDAR_API_BASE = 'https://www.googleapis.com/calendar/v3';
 
-export const fetchCalendarEvents = async (accessToken: string): Promise<CalendarEvent[]> => {
+export const fetchCalendarEvents = async (accessToken: string, calendarIds: string[]): Promise<CalendarEvent[]> => {
   try {
     const now = new Date();
     
-    // Define o início do período como 00:00:00 de hoje para pegar eventos do dia inteiro atuais
+    // Define o início do período como 00:00:00 de hoje
     const startOfPeriod = new Date(now);
     startOfPeriod.setHours(0, 0, 0, 0);
     const timeMin = startOfPeriod.toISOString();
@@ -16,18 +17,20 @@ export const fetchCalendarEvents = async (accessToken: string): Promise<Calendar
     const endOfNextMonth = new Date(now.getFullYear(), now.getMonth() + 2, 0);
     const timeMax = endOfNextMonth.toISOString();
 
-    // Calendários para monitorar
-    const calendarsToFetch: { id: string; name: string }[] = [
-        { id: 'primary', name: 'Principal' },
-        { id: 'design02@tidas.com.br', name: 'Design Tidas' },
-        { id: 'pt-br.brazilian#holiday@group.v.calendar.google.com', name: 'Feriados' }
-    ];
+    // Se a lista estiver vazia, usa o primário por padrão
+    const targets = calendarIds.length > 0 ? calendarIds : ['primary'];
+    
+    // Adiciona sempre feriados brasileiros se não estiver na lista
+    const holidaysId = 'pt-br.brazilian#holiday@group.v.calendar.google.com';
+    if (!targets.includes(holidaysId) && !targets.some(id => id.includes('holiday'))) {
+        targets.push(holidaysId);
+    }
 
-    console.log("Iniciando busca de agenda API...");
+    console.log("Buscando agendas:", targets);
 
-    const allEventsPromises = calendarsToFetch.map(async (cal) => {
+    const allEventsPromises = targets.map(async (calId) => {
       // singleEvents=true expande eventos recorrentes
-      const url = `${CALENDAR_API_BASE}/calendars/${encodeURIComponent(cal.id)}/events?timeMin=${timeMin}&timeMax=${timeMax}&singleEvents=true&orderBy=startTime&maxResults=50&_=${Date.now()}`;
+      const url = `${CALENDAR_API_BASE}/calendars/${encodeURIComponent(calId)}/events?timeMin=${timeMin}&timeMax=${timeMax}&singleEvents=true&orderBy=startTime&maxResults=50&_=${Date.now()}`;
       
       try {
           const res = await fetch(url, {
@@ -35,14 +38,15 @@ export const fetchCalendarEvents = async (accessToken: string): Promise<Calendar
           });
 
           if (!res.ok) {
-              console.warn(`Aviso: Falha ao ler calendário ${cal.name} (${res.status})`);
+              console.warn(`Falha ao ler calendário ${calId}: ${res.status}`);
               return [];
           }
           
           const data = await res.json();
-          return (data.items || []).map((item: any) => ({ ...item, _sourceName: cal.name }));
+          // Tenta usar o summary do calendario como nome da fonte, ou o ID
+          return (data.items || []).map((item: any) => ({ ...item, _sourceName: data.summary || calId }));
       } catch (e) {
-          console.error(`Exceção ao ler calendário ${cal.name}`, e);
+          console.error(`Exceção ao ler calendário ${calId}`, e);
           return [];
       }
     });
@@ -77,7 +81,7 @@ export const fetchCalendarEvents = async (accessToken: string): Promise<Calendar
       };
     });
 
-    // Remove duplicatas e ordena
+    // Remove duplicatas (mesmo ID e mesmo horário de início)
     const uniqueEvents = Array.from(new Map(processedEvents.map(item => [item.id + item.start.getTime(), item])).values());
 
     return uniqueEvents.sort((a, b) => a.start.getTime() - b.start.getTime());

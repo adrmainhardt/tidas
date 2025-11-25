@@ -80,7 +80,8 @@ export const fetchWeather = async (lat: number, lon: number): Promise<WeatherDat
       locationName: "" // Será preenchido externamente
     };
   } catch (error) {
-    console.error("Erro ao buscar clima:", error);
+    // Suppress logging for common network errors to avoid console noise
+    // console.error("Erro ao buscar clima:", error);
     return null;
   }
 };
@@ -89,6 +90,7 @@ export const fetchWeather = async (lat: number, lon: number): Promise<WeatherDat
 export const fetchLocationName = async (lat: number, lon: number): Promise<string> => {
     try {
         const response = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}&zoom=10`);
+        if (!response.ok) return "Localização Atual";
         const data = await response.json();
         return data.address?.city || data.address?.town || data.address?.village || data.address?.municipality || "Localização Atual";
     } catch (e) {

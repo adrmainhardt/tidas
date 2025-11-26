@@ -1,24 +1,25 @@
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { DEFAULT_SITES, MOCK_FORMS, GOOGLE_CLIENT_ID, TRELLO_API_KEY, TRELLO_TOKEN, FALLBACK_API_KEY } from './constants';
-import { SiteConfig, SiteStatus, ViewState, FormSubmission, EmailMessage, TrelloBoard, TrelloList, TrelloCard, CalendarEvent, WeatherData, DashboardPrefs } from './types';
+import { SiteConfig, SiteStatus, ViewState, FormSubmission, EmailMessage, TrelloBoard, TrelloList, TrelloCard, WeatherData, DashboardPrefs, CalendarEvent } from './types';
 import MonitorCard from './components/MonitorCard';
 import InboxItem from './components/InboxItem';
 import EmailItem from './components/EmailItem';
 import FormDetailsModal from './components/FormDetailsModal';
 import EmailDetailsModal from './components/EmailDetailsModal';
 import TrelloCardItem from './components/TrelloCardItem';
-import CalendarEventItem from './components/CalendarEventItem';
 import WeatherWidget from './components/WeatherWidget';
+import CalendarEventItem from './components/CalendarEventItem'; 
 import SideMenu from './components/SideMenu'; 
 import ConfigModal from './components/ConfigModal'; 
+import TabNav from './components/TabNav';
 import { fetchFormsFromWP, fetchSiteStats } from './services/wpService';
 import { fetchGmailMessages } from './services/gmailService';
-import { fetchCalendarEvents } from './services/calendarService';
 import { fetchBoards, fetchLists, fetchCardsFromList } from './services/trelloService';
 import { generateDashboardInsight } from './services/geminiService'; 
 import { fetchWeather, fetchLocationName, getWeatherInfo } from './services/weatherService';
-import { Activity, RefreshCw, AlertTriangle, WifiOff, Trash2, BarChart3, Mail, LogIn, LogOut, Copy, Info, Check, Trello, Settings, CheckSquare, ExternalLink, HelpCircle, Bell, CalendarDays, Calendar, Sparkles, X, Globe, MessageSquareText, Save, Send, User, ChevronDown, ChevronUp, AlertOctagon, Menu } from 'lucide-react';
+import { fetchCalendarEvents } from './services/calendarService'; 
+import { Activity, RefreshCw, AlertTriangle, WifiOff, Trash2, BarChart3, Mail, LogIn, LogOut, Copy, Info, Check, Trello, Settings, CheckSquare, ExternalLink, HelpCircle, Bell, Sparkles, X, Globe, MessageSquareText, Save, Send, User, ChevronDown, ChevronUp, AlertOctagon, Menu, Calendar, Star, Key } from 'lucide-react';
 
 declare global {
   interface Window {
@@ -77,18 +78,6 @@ const playNotificationSound = () => {
   }
 };
 
-const isSameDay = (d1: Date, d2: Date) => {
-  return d1.getDate() === d2.getDate() &&
-         d1.getMonth() === d2.getMonth() &&
-         d1.getFullYear() === d2.getFullYear();
-};
-
-const isTomorrow = (d1: Date, now: Date) => {
-  const tomorrow = new Date(now);
-  tomorrow.setDate(tomorrow.getDate() + 1);
-  return isSameDay(d1, tomorrow);
-};
-
 const TRELLO_COLORS = ['blue', 'amber', 'emerald', 'purple', 'rose', 'cyan', 'indigo', 'lime'];
 
 const App: React.FC = () => {
@@ -104,9 +93,17 @@ const App: React.FC = () => {
   const [loadingWeather, setLoadingWeather] = useState(false);
   const [weatherPermissionDenied, setWeatherPermissionDenied] = useState(false);
 
+  // Calendar State
+  const [calendarIds, setCalendarIds] = usePersistedState<string[]>('monitor_calendar_ids_v4', [
+      'teenfotos@gmail.com',
+      '1f8c739170fec62adf69574e232ec995685e6efc65e6fee560895d12f5f1afab@group.calendar.google.com',
+      'hgmvbnhlrf4ufbjbg74m1sn004n9i34u@import.calendar.google.com' // Feriados
+  ]);
+  const [calendarEvents, setCalendarEvents] = useState<CalendarEvent[]>([]);
+  const [isLoadingCalendar, setIsLoadingCalendar] = useState(false);
+
   const [googleToken, setGoogleToken] = usePersistedState<string | null>('monitor_google_token_v2', null);
   const [emails, setEmails] = useState<EmailMessage[]>([]);
-  const [events, setEvents] = useState<CalendarEvent[]>([]);
   const [isLoadingGoogle, setIsLoadingGoogle] = useState(false);
   const [isGoogleReady, setIsGoogleReady] = useState(false);
   const [copyFeedback, setCopyFeedback] = useState(false);
@@ -115,7 +112,6 @@ const App: React.FC = () => {
   const [apiNotEnabled, setApiNotEnabled] = useState<boolean>(false);
   const [selectedEmailId, setSelectedEmailId] = useState<string | null>(null);
   
-  const [googleSubTab, setGoogleSubTab] = useState<'mail' | 'calendar'>('mail');
   const tokenClient = useRef<any>(null);
 
   const [websiteSubTab, setWebsiteSubTab] = useState<'status' | 'forms'>('status');
@@ -127,12 +123,13 @@ const App: React.FC = () => {
   const [isSideMenuOpen, setIsSideMenuOpen] = useState(false);
   const [isConfigModalOpen, setIsConfigModalOpen] = useState(false);
 
-  const [dashPrefs, setDashPrefs] = usePersistedState<DashboardPrefs>('dashboard_prefs_v10', {
+  const [dashPrefs, setDashPrefs] = usePersistedState<DashboardPrefs>('dashboard_prefs_v13', {
       showSites: true,
       showTrello: true,
       showGoogle: true,
       showWeather: true,
-      calendarIds: ['design02@tidas.com.br']
+      showCalendar: true,
+      googleApiKey: FALLBACK_API_KEY 
   });
 
   const [trelloKey, setTrelloKey] = usePersistedState<string>('monitor_trello_key_v3', TRELLO_API_KEY);
@@ -182,7 +179,7 @@ const App: React.FC = () => {
         try {
           tokenClient.current = window.google.accounts.oauth2.initTokenClient({
             client_id: GOOGLE_CLIENT_ID,
-            scope: 'https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/calendar.readonly',
+            scope: 'https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/calendar.events.readonly',
             prompt: 'consent', 
             callback: (response: any) => {
               if (response.access_token) {
@@ -191,6 +188,7 @@ const App: React.FC = () => {
                 setAuthErrorType(null);
                 setApiNotEnabled(false);
                 fetchGoogleData(response.access_token);
+                updateCalendar(response.access_token);
               }
             },
             error_callback: (error: any) => {
@@ -239,7 +237,7 @@ const App: React.FC = () => {
             setWeather({ ...weatherData, locationName });
           }
         } catch (e) {
-          // Falha silenciosa, mantém loading false
+          // Falha silenciosa
         } finally {
           setLoadingWeather(false);
         }
@@ -259,6 +257,49 @@ const App: React.FC = () => {
       loadWeather();
     }
   }, [loadWeather, dashPrefs.showWeather]);
+
+  const updateCalendar = async (token?: string | null) => {
+    setIsLoadingCalendar(true);
+    try {
+        const effectiveKey = (dashPrefs.googleApiKey && dashPrefs.googleApiKey.trim() !== '') 
+                             ? dashPrefs.googleApiKey 
+                             : FALLBACK_API_KEY;
+
+        const events = await fetchCalendarEvents(
+            { 
+              token: token || googleToken, 
+              apiKey: effectiveKey
+            }, 
+            calendarIds
+        );
+        setCalendarEvents(events);
+    } catch (e) {
+        console.error("Erro calendário:", e);
+    } finally {
+        setIsLoadingCalendar(false);
+    }
+  };
+
+  const handleAddCalendar = (id: string) => {
+      if (!calendarIds.includes(id)) {
+          setCalendarIds(prev => [...prev, id]);
+          setTimeout(() => updateCalendar(), 500);
+      }
+  };
+
+  const handleRemoveCalendar = (id: string) => {
+      setCalendarIds(prev => prev.filter(c => c !== id));
+      setTimeout(() => updateCalendar(), 500);
+  };
+
+  const handleUpdateApiKey = (key: string) => {
+    setDashPrefs(prev => ({ ...prev, googleApiKey: key }));
+    setTimeout(() => {
+      fetchCalendarEvents({ token: googleToken, apiKey: key }, calendarIds)
+        .then(events => setCalendarEvents(events))
+        .finally(() => setIsLoadingCalendar(false));
+    }, 100);
+  };
 
   const checkSiteStatus = async (site: SiteConfig): Promise<SiteConfig> => {
     const controller = new AbortController();
@@ -349,7 +390,7 @@ const App: React.FC = () => {
   };
 
   const fetchGoogleData = async (tokenOverride?: string) => {
-    if (!tokenOverride && !googleToken && dashPrefs.calendarIds.length === 0) return;
+    if (!tokenOverride && !googleToken) return;
     
     setIsLoadingGoogle(true);
     try {
@@ -368,13 +409,6 @@ const App: React.FC = () => {
           prevEmailIdsRef.current = messages.map(m => m.id);
           setEmails(messages);
       }
-
-      const calendarEvents = await fetchCalendarEvents(
-          { token: currentToken, apiKey: FALLBACK_API_KEY }, 
-          dashPrefs.calendarIds || []
-      );
-      setEvents(calendarEvents);
-
     } catch (error: any) {
       console.error("Erro Google:", error);
       if (error.message === 'API_NOT_ENABLED') {
@@ -399,6 +433,7 @@ const App: React.FC = () => {
   const handleDisconnectGoogle = () => {
     setGoogleToken(null);
     setEmails([]);
+    setCalendarEvents([]); 
     setAuthError(false);
     if (window.google && googleToken) {
       try { window.google.accounts.oauth2.revoke(googleToken, () => {}); } catch (e) {}
@@ -470,9 +505,6 @@ const App: React.FC = () => {
     setInsightResult(null); 
     setInsightError(null);
     
-    const now = new Date();
-    const todayEvents = events.filter(e => isSameDay(e.start, now));
-    
     let weatherText = "Clima não informado (ative a localização).";
     
     if (weather) {
@@ -491,17 +523,19 @@ const App: React.FC = () => {
         `;
     }
 
+    const nextEvent = calendarEvents.find(e => e.start > new Date());
+
     const context = {
         sites: sites.map(s => `${s.name}: ${s.status}`),
         forms: forms.filter(f => !f.isRead).slice(0, 3).map(f => `${f.senderName}: ${f.message.substring(0, 50)}...`),
         emails: emails.filter(e => e.isUnread).slice(0, 5).map(e => e.subject),
-        events: todayEvents.map(e => `${e.title} às ${e.start.getHours()}:${e.start.getMinutes()}`),
         trello: trelloBadgeCount,
-        weather: weatherText 
+        weather: weatherText,
+        calendar: nextEvent ? `Próximo evento: ${nextEvent.title} às ${nextEvent.start.toLocaleTimeString()}` : "Sem eventos próximos."
     };
 
     try {
-        const result = await generateDashboardInsight(context);
+        const result = await generateDashboardInsight(context as any); 
         setInsightResult(result);
     } catch (error: any) {
         console.error("Falha ao gerar insight na UI:", error);
@@ -550,6 +584,7 @@ const App: React.FC = () => {
          await checkAllSites();
          await syncForms();
          fetchGoogleData(googleToken || undefined);
+         updateCalendar(googleToken || undefined);
          
          if (trelloKey && trelloToken && trelloListIds.length > 0) {
             try {
@@ -569,6 +604,7 @@ const App: React.FC = () => {
         await syncForms();
         setSites(await Promise.all(sitesRef.current.map(site => checkSiteStatus(site))));
         fetchGoogleData(googleToken || undefined);
+        updateCalendar(googleToken || undefined);
         if (trelloKey && trelloToken && trelloListIds.length > 0) fetchTrelloCards();
       }
     }, 10000);
@@ -577,6 +613,7 @@ const App: React.FC = () => {
         if (document.visibilityState === 'visible') {
             console.log("App foreground: refreshing data...");
             checkAllSites();
+            updateCalendar();
             if (dashPrefs.showWeather) loadWeather();
         }
     };
@@ -587,7 +624,7 @@ const App: React.FC = () => {
         clearInterval(intervalId); 
         document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
-  }, [googleToken, dashPrefs.showWeather, loadWeather, dashPrefs.calendarIds]); 
+  }, [googleToken, dashPrefs.showWeather, loadWeather, calendarIds]);
 
   const handleMarkAsRead = (id: string) => {
     if (!readFormIds.includes(id)) {
@@ -617,17 +654,12 @@ const App: React.FC = () => {
   const handleNavigation = (view: string, subTab?: string) => {
     setCurrentView(view as ViewState);
     if (view === ViewState.WEBSITES && subTab) setWebsiteSubTab(subTab as any);
-    if (view === ViewState.GOOGLE && subTab) setGoogleSubTab(subTab as any);
   };
 
   const renderDashboard = () => {
-    const now = new Date();
-    const todayEventsCount = events.filter(e => isSameDay(e.start, now)).length;
-
     return (
       <div className="space-y-6 animate-fade-in pt-4">
         
-        {/* Insight do Dia Widget */}
         <div 
             onClick={() => !isLoadingInsight && handleGenerateInsight()}
             className="bg-gradient-to-r from-indigo-900/80 to-slate-800 p-3 rounded-2xl border border-indigo-500/20 shadow-lg relative overflow-hidden group cursor-pointer hover:bg-slate-800/50 transition-all active:scale-[0.99]"
@@ -649,7 +681,6 @@ const App: React.FC = () => {
                     <div className="p-2 bg-rose-500/10 rounded border border-rose-500/20">
                         <p className="text-[10px] text-rose-300 font-bold mb-1 flex items-center gap-1"><AlertTriangle className="w-3 h-3"/> Erro ao gerar:</p>
                         <p className="text-[10px] text-rose-400 leading-tight break-words">{insightError}</p>
-                        {insightError.includes('injetada') && <p className="text-[9px] text-rose-500 mt-1 font-bold">Configure o API_KEY no .env do servidor/build.</p>}
                     </div>
                 ) : insightResult ? (
                     <p className="text-xs text-slate-300 leading-relaxed animate-fade-in whitespace-pre-line">
@@ -657,7 +688,7 @@ const App: React.FC = () => {
                     </p>
                 ) : (
                     <p className="text-xs text-slate-400 italic">
-                        Toque aqui para gerar um resumo com IA (Clima semanal, Agenda e Alertas).
+                        Toque aqui para gerar um resumo com IA (Clima semanal, E-mails e Alertas).
                     </p>
                 )}
             </div>
@@ -688,21 +719,22 @@ const App: React.FC = () => {
           )}
 
           {dashPrefs.showGoogle && (
-            <>
-              <div onClick={() => handleNavigation(ViewState.GOOGLE, 'mail')} className="bg-slate-800 p-4 rounded-2xl border border-slate-700 shadow-sm cursor-pointer active:scale-95 transition-all">
-                <div className="flex items-center gap-2 mb-2 text-red-400"><Mail className="w-4 h-4" /><span className="text-xs font-semibold">E-MAIL</span></div>
-                <div className="text-2xl font-bold text-slate-100">
-                    {googleToken ? emails.filter(e => e.isUnread).length : <LogIn className="w-5 h-5 text-slate-500" />}
-                </div>
+            <div onClick={() => handleNavigation(ViewState.GOOGLE)} className="bg-slate-800 p-4 rounded-2xl border border-slate-700 shadow-sm cursor-pointer active:scale-95 transition-all">
+              <div className="flex items-center gap-2 mb-2 text-red-400"><Mail className="w-4 h-4" /><span className="text-xs font-semibold">E-MAIL</span></div>
+              <div className="text-2xl font-bold text-slate-100">
+                  {googleToken ? emails.filter(e => e.isUnread).length : <LogIn className="w-5 h-5 text-slate-500" />}
               </div>
+            </div>
+          )}
 
-              <div onClick={() => handleNavigation(ViewState.GOOGLE, 'calendar')} className="bg-slate-800 p-4 rounded-2xl border border-slate-700 shadow-sm cursor-pointer active:scale-95 transition-all">
-                <div className="flex items-center gap-2 mb-2 text-indigo-400"><CalendarDays className="w-4 h-4" /><span className="text-xs font-semibold">AGENDA</span></div>
-                <div className="text-2xl font-bold text-slate-100">
-                    {todayEventsCount}
-                </div>
+           {dashPrefs.showCalendar && (
+            <div onClick={() => handleNavigation(ViewState.CALENDAR)} className="bg-slate-800 p-4 rounded-2xl border border-slate-700 shadow-sm cursor-pointer active:scale-95 transition-all">
+              <div className="flex items-center gap-2 mb-2 text-purple-400"><Calendar className="w-4 h-4" /><span className="text-xs font-semibold">AGENDA</span></div>
+              <div className="text-2xl font-bold text-slate-100">
+                  {calendarEvents.filter(e => e.start >= new Date() && e.start.getDate() === new Date().getDate()).length}
               </div>
-            </>
+              <div className="text-[10px] text-slate-500 mt-1">Eventos hoje</div>
+            </div>
           )}
         </div>
 
@@ -725,12 +757,6 @@ const App: React.FC = () => {
                 onRequestPermission={loadWeather}
               />
           </div>
-        )}
-        
-        {!dashPrefs.showSites && !dashPrefs.showTrello && !dashPrefs.showGoogle && !dashPrefs.showWeather && (
-            <div className="text-center py-20 text-slate-500">
-                <p>Personalize sua tela inicial no menu de configurações.</p>
-            </div>
         )}
       </div>
     );
@@ -820,21 +846,11 @@ const App: React.FC = () => {
   );
 
   const renderGoogleHub = () => {
-    const unreadEmails = emails.filter(e => e.isUnread).length;
-    const now = new Date();
-    const groupedEvents: { [key: string]: CalendarEvent[] } = {};
-    events.forEach(evt => {
-        const dateKey = evt.start.toDateString();
-        if (!groupedEvents[dateKey]) groupedEvents[dateKey] = [];
-        groupedEvents[dateKey].push(evt);
-    });
-    const sortedDateKeys = Object.keys(groupedEvents).sort((a, b) => new Date(a).getTime() - new Date(b).getTime());
-
     return (
         <div className="pb-20 animate-fade-in flex flex-col h-full pt-4">
              <div className="flex flex-col mb-4 px-1">
                  <div className="flex justify-between items-center mb-4">
-                    <h2 className="text-xl font-bold text-slate-100">Workspace</h2>
+                    <h2 className="text-xl font-bold text-slate-100">E-mails</h2>
                     {googleToken ? (
                       <div className="flex gap-2">
                           <button onClick={handleDisconnectGoogle} className="p-2 text-slate-500 hover:text-rose-400"><LogOut className="w-5 h-5" /></button>
@@ -844,88 +860,102 @@ const App: React.FC = () => {
                       <button onClick={handleConnectGoogle} className="px-3 py-1 bg-blue-600/20 text-blue-400 text-xs rounded-lg hover:bg-blue-600/30 flex items-center gap-1"><LogIn className="w-3 h-3"/> Conectar Conta</button>
                     )}
                  </div>
-                 
-                 <div className="bg-slate-800 p-1 rounded-xl flex gap-1">
-                     <button 
-                        onClick={() => setGoogleSubTab('mail')} 
-                        className={`flex-1 py-2 rounded-lg text-xs font-bold flex justify-center items-center gap-2 transition-colors ${googleSubTab === 'mail' ? 'bg-slate-700 text-white shadow-sm' : 'text-slate-400 hover:text-slate-300'}`}
-                     >
-                        <Mail className="w-3.5 h-3.5" /> E-mails
-                        {unreadEmails > 0 && <span className="bg-red-500 text-white text-[9px] px-1.5 py-0.5 rounded-full">{unreadEmails}</span>}
-                     </button>
-                     <button 
-                        onClick={() => setGoogleSubTab('calendar')} 
-                        className={`flex-1 py-2 rounded-lg text-xs font-bold flex justify-center items-center gap-2 transition-colors ${googleSubTab === 'calendar' ? 'bg-slate-700 text-white shadow-sm' : 'text-slate-400 hover:text-slate-300'}`}
-                     >
-                        <CalendarDays className="w-3.5 h-3.5" /> Agenda
-                     </button>
-                 </div>
              </div>
 
-             {googleSubTab === 'mail' && (
-                !googleToken ? renderGoogleLogin('Gmail') : (
+             {!googleToken ? renderGoogleLogin('Gmail') : (
                   <div>
                       {emails.length === 0 && !isLoadingGoogle && <div className="text-center py-10 text-slate-500"><Check className="w-8 h-8 text-emerald-500/50 mx-auto mb-2"/><p>Caixa limpa!</p></div>}
                       {emails.map(email => <EmailItem key={email.id} email={email} onSelect={() => {setSelectedEmailId(email.id); setEmails(prev => prev.map(e => e.id === email.id ? { ...e, isUnread: false } : e));}} onDismiss={() => setEmails(prev => prev.filter(e => e.id !== email.id))} />)}
                   </div>
-                )
-             )}
-
-             {googleSubTab === 'calendar' && (
-                <div className="space-y-6">
-                       {/* Mostra login apenas se não tiver eventos E não tiver token */}
-                       {events.length === 0 && !isLoadingGoogle && !googleToken && (
-                           <div className="mb-6 p-6 bg-slate-800/50 rounded-xl text-center border border-slate-700/50 flex flex-col items-center">
-                               <CalendarDays className="w-10 h-10 text-slate-600 mb-3" />
-                               <p className="text-sm text-slate-400 mb-4">Faça login para ver sua agenda pessoal ou adicione links de agendas públicas.</p>
-                               <button onClick={handleConnectGoogle} className="w-full bg-white text-slate-900 font-bold py-3 rounded-xl flex items-center justify-center gap-2 hover:bg-slate-100">
-                                  <img src="https://www.google.com/favicon.ico" className="w-4 h-4"/> Conectar
-                               </button>
-                           </div>
-                       )}
-
-                       {events.length === 0 && googleToken && !isLoadingGoogle && (
-                           <p className="text-center text-slate-500 py-10">Nenhum evento encontrado.</p>
-                       )}
-
-                       {sortedDateKeys.map(dateKey => {
-                           const dateObj = new Date(dateKey);
-                           const isToday = isSameDay(dateObj, now);
-                           const isTmrw = isTomorrow(dateObj, now);
-                           
-                           let label = dateObj.toLocaleDateString('pt-BR', { day: 'numeric', month: 'long', weekday: 'long' });
-                           let badgeColor = 'bg-slate-700';
-                           
-                           if (isToday) {
-                               label = "Hoje";
-                               badgeColor = "bg-blue-600";
-                           } else if (isTmrw) {
-                               label = "Amanhã";
-                               badgeColor = "bg-indigo-600";
-                           }
-
-                           return (
-                               <div key={dateKey}>
-                                   <div className="flex items-center gap-3 mb-3 px-1">
-                                       <span className={`text-[10px] font-bold text-white px-2 py-0.5 rounded-md uppercase tracking-wide ${badgeColor}`}>
-                                           {label === "Hoje" || label === "Amanhã" ? label : dateObj.toLocaleDateString('pt-BR', { day: 'numeric', month: 'short' }).toUpperCase()}
-                                       </span>
-                                       {label !== "Hoje" && label !== "Amanhã" && (
-                                           <span className="text-xs text-slate-500 capitalize">
-                                               {dateObj.toLocaleDateString('pt-BR', { weekday: 'long' })}
-                                           </span>
-                                       )}
-                                       <div className="h-px bg-slate-800 flex-1"></div>
-                                   </div>
-                                   {groupedEvents[dateKey].map(evt => (
-                                       <CalendarEventItem key={evt.id} event={evt} />
-                                   ))}
-                               </div>
-                           );
-                       })}
-                  </div>
              )}
         </div>
+    );
+  };
+
+  const renderCalendarHub = () => {
+    const groupedEvents: { [key: string]: CalendarEvent[] } = {};
+    const todayStr = new Date().toLocaleDateString();
+
+    calendarEvents.forEach(event => {
+      const dateKey = event.start.toLocaleDateString();
+      if (!groupedEvents[dateKey]) groupedEvents[dateKey] = [];
+      groupedEvents[dateKey].push(event);
+    });
+
+    const hasEvents = calendarEvents.length > 0;
+    const hasApiKey = (dashPrefs.googleApiKey && dashPrefs.googleApiKey.length > 10) || (FALLBACK_API_KEY && FALLBACK_API_KEY.length > 10);
+
+    return (
+      <div className="pb-20 animate-fade-in flex flex-col h-full pt-4">
+        <div className="flex justify-between items-center mb-4 px-1">
+          <h2 className="text-xl font-bold text-slate-100">Agenda</h2>
+          <div className="flex gap-2">
+             <button onClick={() => setIsConfigModalOpen(true)} className="p-2 text-slate-500 hover:text-slate-300"><Settings className="w-5 h-5" /></button>
+             <button onClick={() => updateCalendar()} className={`p-2 bg-purple-500/20 text-purple-400 rounded-full ${isLoadingCalendar ? 'animate-spin' : ''}`}><RefreshCw className="w-4 h-4" /></button>
+          </div>
+        </div>
+
+        {/* Warning se não tiver eventos e faltar chave */}
+        {!hasEvents && !isLoadingCalendar && !hasApiKey && !googleToken && (
+             <div className="bg-amber-900/20 border border-amber-500/30 p-4 rounded-xl mb-6 mx-1">
+                 <div className="flex items-start gap-3">
+                     <AlertTriangle className="w-5 h-5 text-amber-500 shrink-0 mt-0.5" />
+                     <div>
+                         <h3 className="text-sm font-bold text-amber-200 mb-1">Configuração Necessária</h3>
+                         <p className="text-xs text-amber-100/80 mb-2 leading-relaxed">
+                             Para ver agendas públicas (como Feriados) sem login, você precisa adicionar uma <strong>Google API Key</strong>.
+                         </p>
+                         <button onClick={() => setIsConfigModalOpen(true)} className="text-xs bg-amber-600 hover:bg-amber-500 text-white px-3 py-1.5 rounded font-bold">
+                             Adicionar Key
+                         </button>
+                     </div>
+                 </div>
+             </div>
+        )}
+
+        {/* Mensagem de ajuda caso não apareça nada, mesmo com API Key */}
+        {!hasEvents && !isLoadingCalendar && (hasApiKey || googleToken) && (
+             <div className="bg-slate-800 border border-slate-700 p-4 rounded-xl mb-6 mx-1 text-center">
+                 <Calendar className="w-8 h-8 mx-auto mb-2 text-slate-500" />
+                 <p className="text-sm font-bold text-slate-300">Nenhum evento encontrado</p>
+                 <p className="text-xs text-slate-400 mt-1 leading-relaxed max-w-xs mx-auto">
+                    Se você adicionou agendas (ex: Gmail pessoal), elas precisam ser <strong>Públicas</strong> ou você deve fazer <strong>Login com Google</strong> na aba E-mail.
+                 </p>
+                 {!googleToken && (
+                     <button onClick={() => handleNavigation(ViewState.GOOGLE)} className="mt-3 text-xs bg-blue-600/20 text-blue-300 px-3 py-1.5 rounded-full font-bold border border-blue-600/30">
+                        Ir para Login
+                     </button>
+                 )}
+             </div>
+        )}
+
+        <div className="space-y-6">
+           {Object.keys(groupedEvents).map(dateKey => {
+             const firstEvent = groupedEvents[dateKey][0];
+             const dateObj = firstEvent.start;
+             
+             const weekday = dateObj.toLocaleDateString('pt-BR', { weekday: 'long' });
+             const formattedDate = dateObj.toLocaleDateString('pt-BR');
+             const displayDate = `${weekday.charAt(0).toUpperCase() + weekday.slice(1)}, ${formattedDate}`;
+
+             const isToday = dateKey === todayStr;
+             return (
+               <div key={dateKey} className={`rounded-xl ${isToday ? 'bg-blue-900/10 border border-blue-500/30 p-2 -mx-2' : ''}`}>
+                  <h3 className={`text-xs font-bold uppercase tracking-wider mb-2 sticky top-0 py-2 backdrop-blur-sm z-10 flex items-center gap-2
+                      ${isToday ? 'text-blue-300' : 'text-slate-500 bg-brand-900/90'}`}>
+                    {displayDate}
+                    {isToday && <span className="bg-blue-500 text-white text-[9px] px-1.5 py-0.5 rounded-full flex items-center gap-1"><Star className="w-2.5 h-2.5 fill-current"/> HOJE</span>}
+                  </h3>
+                  <div className="space-y-3">
+                    {groupedEvents[dateKey].map(event => (
+                      <CalendarEventItem key={event.id + event.start.getTime()} event={event} />
+                    ))}
+                  </div>
+               </div>
+             );
+           })}
+        </div>
+      </div>
     );
   };
 
@@ -951,6 +981,8 @@ const App: React.FC = () => {
       <main className="max-w-md mx-auto min-h-screen relative pt-[calc(4rem+env(safe-area-inset-top,20px))] px-4 pb-safe-area">
         {currentView === ViewState.DASHBOARD && renderDashboard()}
         {currentView === ViewState.WEBSITES && renderWebsiteHub()}
+        {currentView === ViewState.GOOGLE && renderGoogleHub()}
+        {currentView === ViewState.CALENDAR && renderCalendarHub()}
         {currentView === ViewState.TRELLO && (
             <>
               {!trelloKey || !trelloToken ? (
@@ -996,7 +1028,6 @@ const App: React.FC = () => {
               )}
             </>
         )}
-        {currentView === ViewState.GOOGLE && renderGoogleHub()}
       </main>
       
       <SideMenu 
@@ -1016,11 +1047,25 @@ const App: React.FC = () => {
         onClose={() => setIsConfigModalOpen(false)}
         preferences={dashPrefs}
         onTogglePreference={(key) => setDashPrefs(prev => ({ ...prev, [key]: !prev[key as keyof typeof prev] }))}
+        onUpdateApiKey={handleUpdateApiKey}
         notificationsEnabled={notifPermission === 'granted'}
         onToggleNotifications={requestNotificationPermission}
         locationEnabled={!weatherPermissionDenied}
         onToggleLocation={loadWeather}
-        onUpdateCalendar={(ids) => setDashPrefs(prev => ({ ...prev, calendarIds: ids || [] }))}
+        calendarIds={calendarIds}
+        onAddCalendar={handleAddCalendar}
+        onRemoveCalendar={handleRemoveCalendar}
+      />
+
+      <TabNav 
+        currentView={currentView}
+        onChangeView={setCurrentView}
+        badges={{
+           sites: sites.some(s => s.status === SiteStatus.OFFLINE),
+           forms: forms.filter(f => !f.isRead).length,
+           google: emails.filter(e => e.isUnread).length,
+           trello: trelloBadgeCount
+        }}
       />
 
       {selectedFormId && (

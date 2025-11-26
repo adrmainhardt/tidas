@@ -1,7 +1,7 @@
 
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { ViewState } from '../types';
-import { LayoutDashboard, Globe, Briefcase, Trello } from 'lucide-react';
+import { LayoutDashboard, Globe, Mail, Trello, Calendar } from 'lucide-react';
 
 interface TabNavProps {
   currentView: ViewState;
@@ -9,7 +9,7 @@ interface TabNavProps {
   badges: {
     sites: boolean; // True se tiver site offline
     forms: number;  // Número de forms não lidos
-    google?: number; // Soma de emails + eventos
+    google?: number; // Número de emails
     trello?: number; // Número de novos cartões
   };
 }
@@ -18,7 +18,8 @@ const TabNav: React.FC<TabNavProps> = ({ currentView, onChangeView, badges }) =>
   const navItems = [
     { id: ViewState.DASHBOARD, label: 'Início', icon: LayoutDashboard },
     { id: ViewState.WEBSITES, label: 'Sites', icon: Globe, badgeCount: badges.forms, alert: badges.sites },
-    { id: ViewState.GOOGLE, label: 'Google', icon: Briefcase, badgeCount: badges.google },
+    { id: ViewState.GOOGLE, label: 'E-mail', icon: Mail, badgeCount: badges.google },
+    { id: ViewState.CALENDAR, label: 'Agenda', icon: Calendar },
     { id: ViewState.TRELLO, label: 'Trello', icon: Trello, badgeCount: badges.trello },
   ];
 

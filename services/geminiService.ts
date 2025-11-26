@@ -50,7 +50,6 @@ export const generateDashboardInsight = async (context: {
     sites: string[],
     forms: string[],
     emails: string[],
-    events: string[],
     trello: number,
     weather?: string
 }): Promise<string> => {
@@ -67,7 +66,6 @@ export const generateDashboardInsight = async (context: {
         const siteText = context.sites?.length ? context.sites.join(', ') : "Todos online.";
         const formText = context.forms?.length ? context.forms.join('; ') : "Sem mensagens.";
         const emailText = context.emails?.length ? context.emails.join('; ') : "Sem urgências.";
-        const eventText = context.events?.length ? context.events.join('; ') : "Agenda livre.";
         const trelloText = context.trello > 0 ? `${context.trello} tarefas.` : "Trello em dia.";
         const weatherText = context.weather || "Clima desconhecido.";
 
@@ -75,7 +73,6 @@ export const generateDashboardInsight = async (context: {
         Atue como assistente pessoal (Tidas).
         DADOS:
         - Clima: ${weatherText}
-        - Agenda: ${eventText}
         - Sites: ${siteText}
         - Inbox: ${formText} // ${emailText}
         - Trello: ${trelloText}

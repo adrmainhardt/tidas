@@ -1,5 +1,6 @@
+
 import React, { useEffect, useState } from 'react';
-import { Sparkles, Globe, MessageSquareText, Mail, CalendarDays, Trello, X, ChevronRight } from 'lucide-react';
+import { Sparkles, Globe, MessageSquareText, Mail, Trello, X, ChevronRight, Calendar } from 'lucide-react';
 
 interface SideMenuProps {
   isOpen: boolean;
@@ -62,10 +63,10 @@ const SideMenu: React.FC<SideMenuProps> = ({ isOpen, onClose, onNavigate, onGene
     },
     { 
       label: 'Agenda', 
-      icon: CalendarDays, 
-      action: () => { onNavigate('GOOGLE', 'calendar'); onClose(); },
-      color: 'text-indigo-400',
-      bg: 'bg-indigo-400/10'
+      icon: Calendar, 
+      action: () => { onNavigate('CALENDAR'); onClose(); },
+      color: 'text-purple-400',
+      bg: 'bg-purple-400/10'
     },
     { 
       label: 'Trello', 
@@ -126,7 +127,7 @@ const SideMenu: React.FC<SideMenuProps> = ({ isOpen, onClose, onNavigate, onGene
         </div>
 
         <div className="p-6 border-t border-slate-800 text-center">
-            <p className="text-xs text-slate-600">Tidas App v2.1</p>
+            <p className="text-xs text-slate-600">Tidas App v2.2</p>
         </div>
       </div>
     </div>

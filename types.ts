@@ -1,5 +1,4 @@
 
-
 export enum SiteStatus {
   ONLINE = 'ONLINE',
   OFFLINE = 'OFFLINE',
@@ -51,19 +50,6 @@ export interface SlackMessage {
   channelId: string;
 }
 
-// Tipos do Google Calendar
-export interface CalendarEvent {
-  id: string;
-  title: string;
-  description?: string;
-  location?: string;
-  start: Date;
-  end: Date;
-  isAllDay: boolean;
-  link?: string;
-  status?: string; // 'confirmed', 'tentative', 'cancelled'
-}
-
 // Tipos do Trello
 export interface TrelloBoard {
   id: string;
@@ -106,19 +92,33 @@ export interface WeatherData {
   locationName?: string;
 }
 
+// Tipos de Calendário
+export interface CalendarEvent {
+  id: string;
+  title: string;
+  description: string;
+  location: string;
+  start: Date;
+  end: Date;
+  isAllDay: boolean;
+  link?: string;
+  status?: string;
+}
+
 // Preferências do Dashboard
 export interface DashboardPrefs {
   showSites: boolean;
   showTrello: boolean;
   showGoogle: boolean;
   showWeather: boolean;
-  // Configuração de Agenda Simplificada
-  calendarIds: string[]; // Lista de IDs de calendário para monitorar
+  showCalendar: boolean;
+  googleApiKey?: string; // Nova chave para persistir a API Key pública
 }
 
 export enum ViewState {
   DASHBOARD = 'DASHBOARD',
   WEBSITES = 'WEBSITES', // Unificado (Sites + Forms)
   GOOGLE = 'GOOGLE',
-  TRELLO = 'TRELLO'
+  TRELLO = 'TRELLO',
+  CALENDAR = 'CALENDAR'
 }

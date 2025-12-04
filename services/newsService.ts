@@ -72,11 +72,22 @@ export const fetchNewsWithAI = async (topics: string[], apiKeyOverride?: string)
   } catch (error: any) {
     console.error("Erro ao buscar notícias:", error);
     
-    // Tratamento de mensagens de erro comuns para exibir na UI
     let msg = error.message || "Erro desconhecido";
-    if (msg.includes("403")) msg = "Acesso Negado (403). Verifique restrições de domínio na API Key.";
-    if (msg.includes("400")) msg = "Requisição Inválida (400). Chave pode estar incorreta.";
-    if (msg.includes("API key not valid")) msg = "API Key inválida.";
+    
+    // Diagnóstico preciso de erros comuns do Google Cloud
+    if (msg.includes("403") || msg.includes("PERMISSION_DENIED")) {
+        if (msg.includes("API key not valid")) {
+            msg = "Chave de API inválida (400). Verifique se copiou corretamente.";
+        } else {
+            msg = "Acesso Negado (403). A API 'Generative Language API' pode estar desativada no seu projeto Google Cloud.";
+        }
+    }
+    else if (msg.includes("400") || msg.includes("INVALID_ARGUMENT")) {
+        msg = "Erro na requisição (400). Chave incorreta ou API desativada.";
+    }
+    else if (msg.includes("fetch failed")) {
+        msg = "Erro de conexão. Verifique sua internet.";
+    }
     
     throw new Error(msg);
   }

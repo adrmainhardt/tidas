@@ -22,7 +22,7 @@ import { generateDashboardInsight } from './services/geminiService';
 import { fetchNewsWithAI } from './services/newsService';
 import { fetchWeather, fetchLocationName, getWeatherInfo } from './services/weatherService';
 import { fetchCalendarEvents } from './services/calendarService'; 
-import { Activity, RefreshCw, AlertTriangle, WifiOff, Trash2, BarChart3, Mail, LogIn, LogOut, Copy, Info, Check, Trello, Settings, CheckSquare, ExternalLink, HelpCircle, Bell, Sparkles, X, Globe, MessageSquareText, Save, Send, User, ChevronDown, ChevronUp, AlertOctagon, Menu, Calendar, Star, Key, Newspaper, PlusCircle, Wrench } from 'lucide-react';
+import { Activity, RefreshCw, AlertTriangle, WifiOff, Trash2, BarChart3, Mail, LogIn, LogOut, Copy, Info, Check, Trello, Settings, CheckSquare, ExternalLink, HelpCircle, Bell, Sparkles, X, Globe, MessageSquareText, Save, Send, User, ChevronDown, ChevronUp, AlertOctagon, Menu, Calendar, Star, Key, Newspaper, PlusCircle, Wrench, Zap } from 'lucide-react';
 
 declare global {
   interface Window {
@@ -708,6 +708,8 @@ const App: React.ReactElement = () => {
             console.log("App foreground: refreshing data...");
             checkAllSites();
             updateCalendar();
+            // Force reload news on visible to check if API was enabled
+            if (newsError) loadNews(true);
             if (dashPrefs.showWeather) loadWeather();
         }
     };
@@ -718,7 +720,7 @@ const App: React.ReactElement = () => {
         clearInterval(intervalId); 
         document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
-  }, [googleToken, dashPrefs.showWeather, loadWeather, calendarIds]);
+  }, [googleToken, dashPrefs.showWeather, loadWeather, calendarIds, newsError]);
 
   // Touch Handlers for Page Swiping (Android Style)
   const handleTouchStart = (e: React.TouchEvent) => {
@@ -930,46 +932,58 @@ const App: React.ReactElement = () => {
                           <h3 className="text-rose-400 font-bold flex items-center gap-2"><AlertOctagon className="w-4 h-4"/> Erro ao carregar</h3>
                           <p className="text-rose-300 text-xs mt-1">{newsError}</p>
                           
-                          {newsError.includes("403") ? (
+                          {/* Verifica se o erro é explicitamente sobre API desativada ou Permissão */}
+                          {(newsError.includes("403") || newsError.includes("API 'Generative Language API'")) ? (
                              <div className="mt-3 bg-rose-950/30 p-2 rounded border border-rose-500/20 space-y-2">
                                  <p className="text-[11px] text-rose-200 mb-1 font-bold">
-                                     Atenção: Você configurou o "ID do Cliente OAuth" (Login), mas para Notícias é necessário editar a <span className="underline decoration-2 decoration-rose-400">API Key</span> (ícone de chave 🔑).
+                                     Atenção: Você tem a chave, mas o serviço da IA não está ativado no Google Cloud.
                                  </p>
                                  <p className="text-[10px] text-rose-300 mb-1">
-                                     Adicione o domínio abaixo nas restrições da sua API Key:
+                                     Clique abaixo, procure por <strong>"Gemini API"</strong> ou <strong>"Generative Language API"</strong> e clique em "ATIVAR":
                                  </p>
-                                 <div className="flex items-center gap-2">
-                                     <code className="text-[10px] bg-black/30 px-1 py-0.5 rounded flex-1 truncate text-rose-100">
-                                         {window.location.origin}
-                                     </code>
-                                     <button 
-                                         onClick={() => {
-                                             navigator.clipboard.writeText(window.location.origin);
-                                             alert("Domínio copiado!");
-                                         }}
-                                         className="text-[10px] bg-rose-500/20 hover:bg-rose-500/40 text-rose-200 px-2 py-1 rounded"
-                                     >
-                                         Copiar
-                                     </button>
-                                 </div>
-                                 
                                  <a 
-                                    href="https://console.cloud.google.com/apis/credentials" 
+                                    href="https://console.cloud.google.com/apis/library/generativelanguage.googleapis.com" 
                                     target="_blank" 
                                     rel="noopener noreferrer"
                                     className="block text-center text-[10px] font-bold bg-rose-600 hover:bg-rose-500 text-white py-2 rounded-lg transition-colors flex items-center justify-center gap-1"
                                  >
-                                    <Wrench className="w-3 h-3" /> Abrir Google Console (Busque pela Chave 🔑)
+                                    <Zap className="w-3 h-3" /> Ativar API no Console
                                  </a>
+                                 
+                                 <div className="mt-2 pt-2 border-t border-rose-800">
+                                     <p className="text-[10px] text-rose-300 mb-1">Se já ativou, adicione o domínio:</p>
+                                     <div className="flex items-center gap-2">
+                                         <code className="text-[9px] bg-black/30 px-1 py-0.5 rounded flex-1 truncate text-rose-100">
+                                             {window.location.origin}
+                                         </code>
+                                         <button 
+                                             onClick={() => {
+                                                 navigator.clipboard.writeText(window.location.origin);
+                                                 alert("Domínio copiado!");
+                                             }}
+                                             className="text-[9px] bg-rose-500/20 hover:bg-rose-500/40 text-rose-200 px-2 py-1 rounded"
+                                         >
+                                             Copiar
+                                         </button>
+                                     </div>
+                                 </div>
+                                 
+                                 {/* Botão de Tentar Novamente */}
+                                 <button 
+                                    onClick={() => loadNews(true)}
+                                    className="w-full mt-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold py-2 rounded-lg transition-colors flex items-center justify-center gap-1"
+                                 >
+                                    <Check className="w-3 h-3" /> Já ativei, Tentar Novamente
+                                 </button>
                              </div>
                           ) : (
-                             // Helper genérico para quando não há chave ou chave inválida
+                             // Helper genérico
                              <div className="mt-3">
                                  <button 
                                      onClick={() => setIsConfigModalOpen(true)}
                                      className="w-full text-[11px] font-bold bg-rose-600 hover:bg-rose-500 text-white py-2 rounded-lg"
                                  >
-                                     Verificar ou Criar Chave nas Configurações
+                                     Verificar Chave nas Configurações
                                  </button>
                              </div>
                           )}

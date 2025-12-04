@@ -132,8 +132,8 @@ const App: React.ReactElement = () => {
   const [isSideMenuOpen, setIsSideMenuOpen] = useState(false);
   const [isConfigModalOpen, setIsConfigModalOpen] = useState(false);
 
-  // v18: Updated default order as requested: Insight -> Sites List -> Shortcuts -> News -> Weather
-  const [dashPrefs, setDashPrefs] = usePersistedState<DashboardPrefs>('dashboard_prefs_v18', {
+  // v19: Enforce requested order: Insight -> Sites List -> Shortcuts -> News -> Weather
+  const [dashPrefs, setDashPrefs] = usePersistedState<DashboardPrefs>('dashboard_prefs_v19', {
       showSites: true,
       showTrello: true,
       showGoogle: true,
@@ -197,7 +197,8 @@ const App: React.ReactElement = () => {
     }
     
     setIsLoadingNews(true);
-    setNewsError(null);
+    // Don't clear old articles if we are appending or if it's a soft refresh
+    if (!append && force) setNewsError(null);
 
     try {
         const effectiveKey = (dashPrefs.googleApiKey && dashPrefs.googleApiKey.trim() !== '') 
@@ -223,6 +224,7 @@ const App: React.ReactElement = () => {
                 setNewsArticles(newArticles);
             }
             setLastNewsFetch(Date.now());
+            setNewsError(null); // Clear error on success
         }
     } catch (e: any) {
         console.error("Erro ao carregar notícias:", e);
@@ -904,6 +906,7 @@ const App: React.ReactElement = () => {
       ) : null
     };
 
+    // Use default order if undefined, but use the new v19 default
     const currentOrder = dashPrefs.dashboardOrder || ['insight', 'sites_list', 'shortcuts', 'news', 'weather', 'notifications'];
 
     return (
@@ -917,6 +920,8 @@ const App: React.ReactElement = () => {
       const effectiveKey = (dashPrefs.googleApiKey && dashPrefs.googleApiKey.trim() !== '') ? dashPrefs.googleApiKey : FALLBACK_API_KEY;
       const maskedKey = effectiveKey ? `${effectiveKey.substring(0, 8)}...${effectiveKey.substring(effectiveKey.length - 4)}` : 'Nenhuma';
 
+      // Only show error if we have NO articles to show. If we have cached articles, show them + maybe a small toast?
+      // User requested to hide error if news are showing.
       const showErrorMessage = newsError && newsArticles.length === 0;
 
       return (
@@ -952,12 +957,14 @@ const App: React.ReactElement = () => {
                                 <li>
                                     <strong>Restrições de Site (Curinga *)</strong>
                                     <br/>
-                                    Adicione o link EXATAMENTE assim (com asterisco no final):
-                                    <div className="flex items-center gap-2 mt-1 mb-1">
-                                         <code className="bg-black/30 px-1 py-0.5 rounded text-rose-100 flex-1 truncate">
+                                    Adicione AMBOS os links com asterisco:
+                                    <div className="flex flex-col gap-1 mt-1 mb-1">
+                                         <code className="bg-black/30 px-1 py-0.5 rounded text-rose-100 truncate">
                                              {window.location.origin}/*
                                          </code>
-                                         <button onClick={() => navigator.clipboard.writeText(window.location.origin + "/*")} className="text-rose-300 bg-rose-900/50 px-2 py-0.5 rounded hover:bg-rose-800">Copiar</button>
+                                         <code className="bg-black/30 px-1 py-0.5 rounded text-rose-100 truncate">
+                                             {window.location.origin.replace('https://', 'https://www.')}/*
+                                         </code>
                                     </div>
                                     <span className="opacity-70 italic">Sem o *, o Google bloqueia sub-páginas.</span>
                                 </li>

@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { DEFAULT_SITES, MOCK_FORMS, GOOGLE_CLIENT_ID, TRELLO_API_KEY, TRELLO_TOKEN, FALLBACK_API_KEY } from './constants';
-import { SiteConfig, SiteStatus, ViewState, FormSubmission, EmailMessage, TrelloBoard, TrelloList, TrelloCard, WeatherData, DashboardPrefs, CalendarEvent } from './types';
+import { DEFAULT_SITES, MOCK_FORMS, GOOGLE_CLIENT_ID, TRELLO_API_KEY, TRELLO_TOKEN, FALLBACK_API_KEY, DEFAULT_NEWS_TOPICS } from './constants';
+import { SiteConfig, SiteStatus, ViewState, FormSubmission, EmailMessage, TrelloBoard, TrelloList, TrelloCard, WeatherData, DashboardPrefs, CalendarEvent, NewsArticle } from './types';
 import MonitorCard from './components/MonitorCard';
 import InboxItem from './components/InboxItem';
 import EmailItem from './components/EmailItem';
@@ -13,13 +13,16 @@ import CalendarEventItem from './components/CalendarEventItem';
 import SideMenu from './components/SideMenu'; 
 import ConfigModal from './components/ConfigModal'; 
 import TabNav from './components/TabNav';
+import NewsCard from './components/NewsCard';
+import NewsWidget from './components/NewsWidget';
 import { fetchFormsFromWP, fetchSiteStats } from './services/wpService';
 import { fetchGmailMessages } from './services/gmailService';
 import { fetchBoards, fetchLists, fetchCardsFromList } from './services/trelloService';
 import { generateDashboardInsight } from './services/geminiService'; 
+import { fetchNewsWithAI } from './services/newsService';
 import { fetchWeather, fetchLocationName, getWeatherInfo } from './services/weatherService';
 import { fetchCalendarEvents } from './services/calendarService'; 
-import { Activity, RefreshCw, AlertTriangle, WifiOff, Trash2, BarChart3, Mail, LogIn, LogOut, Copy, Info, Check, Trello, Settings, CheckSquare, ExternalLink, HelpCircle, Bell, Sparkles, X, Globe, MessageSquareText, Save, Send, User, ChevronDown, ChevronUp, AlertOctagon, Menu, Calendar, Star, Key } from 'lucide-react';
+import { Activity, RefreshCw, AlertTriangle, WifiOff, Trash2, BarChart3, Mail, LogIn, LogOut, Copy, Info, Check, Trello, Settings, CheckSquare, ExternalLink, HelpCircle, Bell, Sparkles, X, Globe, MessageSquareText, Save, Send, User, ChevronDown, ChevronUp, AlertOctagon, Menu, Calendar, Star, Key, Newspaper, PlusCircle } from 'lucide-react';
 
 declare global {
   interface Window {
@@ -102,6 +105,11 @@ const App: React.FC = () => {
   const [calendarEvents, setCalendarEvents] = useState<CalendarEvent[]>([]);
   const [isLoadingCalendar, setIsLoadingCalendar] = useState(false);
 
+  // News State
+  const [newsArticles, setNewsArticles] = useState<NewsArticle[]>([]);
+  const [isLoadingNews, setIsLoadingNews] = useState(false);
+  const [lastNewsFetch, setLastNewsFetch] = usePersistedState<number>('monitor_last_news_fetch', 0);
+
   const [googleToken, setGoogleToken] = usePersistedState<string | null>('monitor_google_token_v2', null);
   const [emails, setEmails] = useState<EmailMessage[]>([]);
   const [isLoadingGoogle, setIsLoadingGoogle] = useState(false);
@@ -123,13 +131,16 @@ const App: React.FC = () => {
   const [isSideMenuOpen, setIsSideMenuOpen] = useState(false);
   const [isConfigModalOpen, setIsConfigModalOpen] = useState(false);
 
-  const [dashPrefs, setDashPrefs] = usePersistedState<DashboardPrefs>('dashboard_prefs_v13', {
+  // v15: Added dashboardOrder
+  const [dashPrefs, setDashPrefs] = usePersistedState<DashboardPrefs>('dashboard_prefs_v15', {
       showSites: true,
       showTrello: true,
       showGoogle: true,
       showWeather: true,
       showCalendar: true,
-      googleApiKey: FALLBACK_API_KEY 
+      googleApiKey: FALLBACK_API_KEY,
+      newsTopics: DEFAULT_NEWS_TOPICS,
+      dashboardOrder: ['insight', 'news', 'weather', 'notifications', 'shortcuts', 'sites_list']
   });
 
   const [trelloKey, setTrelloKey] = usePersistedState<string>('monitor_trello_key_v3', TRELLO_API_KEY);
@@ -155,6 +166,10 @@ const App: React.FC = () => {
   const prevEmailIdsRef = useRef<string[]>([]);
   const prevTrelloCardIdsRef = useRef<string[]>([]);
 
+  // Gesture State
+  const touchStartRef = useRef<{x: number, y: number} | null>(null);
+  const touchEndRef = useRef<{x: number, y: number} | null>(null);
+
   useEffect(() => { deletedIdsRef.current = deletedFormIds || []; }, [deletedFormIds]);
   useEffect(() => { readIdsRef.current = readFormIds || []; }, [readFormIds]);
   useEffect(() => { sitesRef.current = sites; }, [sites]);
@@ -172,6 +187,60 @@ const App: React.FC = () => {
       setTrelloBadgeCount(0);
     }
   }, [currentView]);
+
+  // Fetch News logic
+  const loadNews = async (force: boolean = false, append: boolean = false) => {
+    // Evita fetch excessivo (cache de 1 hora) se não for force e não for append
+    if (!force && !append && newsArticles.length > 0 && (Date.now() - lastNewsFetch < 3600000)) {
+        return;
+    }
+    
+    setIsLoadingNews(true);
+    try {
+        const effectiveKey = (dashPrefs.googleApiKey && dashPrefs.googleApiKey.trim() !== '') 
+                             ? dashPrefs.googleApiKey 
+                             : FALLBACK_API_KEY;
+
+        // Se for append (carregar mais), embaralhamos os tópicos para tentar pegar coisas diferentes
+        let topicsToFetch = [...(dashPrefs.newsTopics || DEFAULT_NEWS_TOPICS)];
+        if (append) {
+            topicsToFetch = topicsToFetch.sort(() => Math.random() - 0.5);
+        }
+
+        const newArticles = await fetchNewsWithAI(topicsToFetch, effectiveKey);
+        
+        if (newArticles.length > 0) {
+            if (append) {
+                // Filtra duplicados pelo título para não repetir notícias
+                setNewsArticles(prev => {
+                    const existingTitles = new Set(prev.map(a => a.title));
+                    const filteredNew = newArticles.filter(a => !existingTitles.has(a.title));
+                    return [...prev, ...filteredNew];
+                });
+            } else {
+                setNewsArticles(newArticles);
+            }
+            setLastNewsFetch(Date.now());
+        }
+    } catch (e) {
+        console.error("Erro ao carregar notícias:", e);
+    } finally {
+        setIsLoadingNews(false);
+    }
+  };
+
+  useEffect(() => {
+    if (currentView === ViewState.NEWS) {
+        loadNews();
+    }
+  }, [currentView, dashPrefs.newsTopics]);
+
+  // Carregar notícias na inicialização para o Widget
+  useEffect(() => {
+    if (newsArticles.length === 0) {
+        loadNews();
+    }
+  }, []); // Run once on mount
 
   useEffect(() => {
     const initGoogleAuth = () => {
@@ -299,6 +368,28 @@ const App: React.FC = () => {
         .then(events => setCalendarEvents(events))
         .finally(() => setIsLoadingCalendar(false));
     }, 100);
+  };
+
+  const handleAddNewsTopic = (topic: string) => {
+     setDashPrefs(prev => ({ 
+        ...prev, 
+        newsTopics: [...(prev.newsTopics || []), topic] 
+     }));
+     // Force refresh news
+     setTimeout(() => loadNews(true), 100);
+  };
+
+  const handleRemoveNewsTopic = (topic: string) => {
+     setDashPrefs(prev => ({ 
+        ...prev, 
+        newsTopics: (prev.newsTopics || []).filter(t => t !== topic) 
+     }));
+     // Force refresh news
+     setTimeout(() => loadNews(true), 100);
+  };
+
+  const handleReorderDashboard = (newOrder: string[]) => {
+      setDashPrefs(prev => ({ ...prev, dashboardOrder: newOrder }));
   };
 
   const checkSiteStatus = async (site: SiteConfig): Promise<SiteConfig> => {
@@ -626,6 +717,45 @@ const App: React.FC = () => {
     };
   }, [googleToken, dashPrefs.showWeather, loadWeather, calendarIds]);
 
+  // Touch Handlers for Page Swiping (Android Style)
+  const handleTouchStart = (e: React.TouchEvent) => {
+      touchStartRef.current = { x: e.targetTouches[0].clientX, y: e.targetTouches[0].clientY };
+      touchEndRef.current = null;
+  };
+
+  const handleTouchMove = (e: React.TouchEvent) => {
+      touchEndRef.current = { x: e.targetTouches[0].clientX, y: e.targetTouches[0].clientY };
+  };
+
+  const handleTouchEnd = () => {
+      if (!touchStartRef.current || !touchEndRef.current) return;
+      
+      const xDiff = touchStartRef.current.x - touchEndRef.current.x;
+      const yDiff = touchStartRef.current.y - touchEndRef.current.y;
+      
+      const minSwipeDistance = 60;
+      const maxVerticalVariance = 50;
+
+      // Ensure horizontal swipe is dominant and significant
+      if (Math.abs(xDiff) > minSwipeDistance && Math.abs(yDiff) < maxVerticalVariance) {
+          // Swipe Right (Finger moves Left to Right, xDiff < 0) -> Open News
+          if (xDiff < 0) {
+              if (currentView === ViewState.DASHBOARD) {
+                   setCurrentView(ViewState.NEWS);
+              }
+          }
+          // Swipe Left (Finger moves Right to Left, xDiff > 0) -> Close News (Go Back)
+          else {
+              if (currentView === ViewState.NEWS) {
+                   setCurrentView(ViewState.DASHBOARD);
+              }
+          }
+      }
+      
+      touchStartRef.current = null;
+      touchEndRef.current = null;
+  };
+
   const handleMarkAsRead = (id: string) => {
     if (!readFormIds.includes(id)) {
       setReadFormIds(prev => [...prev, id]);
@@ -657,10 +787,9 @@ const App: React.FC = () => {
   };
 
   const renderDashboard = () => {
-    return (
-      <div className="space-y-6 animate-fade-in pt-4">
-        
-        <div 
+    const blocks: Record<string, React.ReactElement | null> = {
+      insight: (
+        <div key="insight" 
             onClick={() => !isLoadingInsight && handleGenerateInsight()}
             className="bg-gradient-to-r from-indigo-900/80 to-slate-800 p-3 rounded-2xl border border-indigo-500/20 shadow-lg relative overflow-hidden group cursor-pointer hover:bg-slate-800/50 transition-all active:scale-[0.99]"
         >
@@ -693,14 +822,32 @@ const App: React.FC = () => {
                 )}
             </div>
         </div>
-
-        {notifPermission === 'default' && (
-           <button onClick={requestNotificationPermission} className="w-full bg-blue-600/20 text-blue-300 text-xs font-bold p-3 rounded-xl border border-blue-600/30 flex items-center justify-center gap-2">
+      ),
+      news: (
+        <NewsWidget 
+            key="news"
+            articles={newsArticles} 
+            isLoading={isLoadingNews} 
+            onNavigate={() => setCurrentView(ViewState.NEWS)} 
+        />
+      ),
+      weather: dashPrefs.showWeather ? (
+          <div key="weather" className="-mt-2">
+              <WeatherWidget 
+                weather={weather} 
+                loading={loadingWeather} 
+                permissionDenied={weatherPermissionDenied}
+                onRequestPermission={loadWeather}
+              />
+          </div>
+      ) : null,
+      notifications: notifPermission === 'default' ? (
+           <button key="notif" onClick={requestNotificationPermission} className="w-full bg-blue-600/20 text-blue-300 text-xs font-bold p-3 rounded-xl border border-blue-600/30 flex items-center justify-center gap-2">
               <Bell className="w-4 h-4" /> ATIVAR NOTIFICAÇÕES
            </button>
-        )}
-
-        <div className="grid grid-cols-2 gap-4">
+      ) : null,
+      shortcuts: (
+        <div key="shortcuts" className="grid grid-cols-2 gap-4">
           {dashPrefs.showSites && (
             <div onClick={() => handleNavigation(ViewState.WEBSITES, 'status')} className="bg-slate-800 p-4 rounded-2xl border border-slate-700 shadow-sm cursor-pointer active:scale-95 transition-all">
               <div className="flex items-center gap-2 mb-2 text-brand-400"><Globe className="w-4 h-4" /><span className="text-xs font-semibold">SITES & FORMS</span></div>
@@ -737,29 +884,83 @@ const App: React.FC = () => {
             </div>
           )}
         </div>
-
-        {dashPrefs.showSites && (
-          <div className="mb-6">
+      ),
+      sites_list: dashPrefs.showSites ? (
+          <div key="sites_list" className="mb-6">
             <div className="flex justify-between items-center mb-4 px-1">
                 <h3 className="text-lg font-bold text-slate-100">Status dos Sites</h3>
                 <button onClick={checkAllSites} className="p-2 bg-brand-secondary/20 text-brand-secondary rounded-full hover:bg-brand-secondary/30"><RefreshCw className="w-4 h-4" /></button>
             </div>
             {sites.map(site => <MonitorCard key={site.id} site={site} onRefresh={handleRefreshSite} minimal={true} />)}
           </div>
-        )}
+      ) : null
+    };
 
-        {dashPrefs.showWeather && (
-          <div className="pb-10">
-              <WeatherWidget 
-                weather={weather} 
-                loading={loadingWeather} 
-                permissionDenied={weatherPermissionDenied}
-                onRequestPermission={loadWeather}
-              />
-          </div>
-        )}
+    const currentOrder = dashPrefs.dashboardOrder || ['insight', 'news', 'weather', 'notifications', 'shortcuts', 'sites_list'];
+
+    return (
+      <div className="space-y-6 animate-fade-in pt-4 pb-32">
+        {currentOrder.map(id => blocks[id] || null)}
       </div>
     );
+  };
+
+  const renderNewsHub = () => {
+      return (
+          <div className="pb-32 animate-fade-in flex flex-col h-full pt-4">
+              <div className="flex justify-between items-center mb-4 px-1">
+                  <div className="flex items-center gap-2">
+                       <h2 className="text-xl font-bold text-slate-100">Notícias</h2>
+                       <span className="text-[10px] bg-cyan-900 text-cyan-200 px-2 py-0.5 rounded-full border border-cyan-800">Discover</span>
+                  </div>
+                  <div className="flex gap-2">
+                       <button onClick={() => setIsConfigModalOpen(true)} className="p-2 text-slate-500 hover:text-slate-300"><Settings className="w-5 h-5" /></button>
+                       <button onClick={() => loadNews(true)} className={`p-2 bg-cyan-500/20 text-cyan-400 rounded-full ${isLoadingNews ? 'animate-spin' : ''}`}><RefreshCw className="w-4 h-4" /></button>
+                  </div>
+              </div>
+
+              <div className="space-y-4">
+                  {isLoadingNews && newsArticles.length === 0 && (
+                      <div className="flex flex-col items-center py-10">
+                          <div className="w-8 h-8 border-2 border-cyan-500 border-t-transparent rounded-full animate-spin mb-3"></div>
+                          <p className="text-sm text-slate-500">Buscando atualizações com IA...</p>
+                      </div>
+                  )}
+
+                  {!isLoadingNews && newsArticles.length === 0 && (
+                      <div className="bg-slate-800 p-6 rounded-xl border border-slate-700 text-center">
+                          <Newspaper className="w-10 h-10 text-slate-600 mx-auto mb-3" />
+                          <p className="text-slate-300 font-bold">Sem notícias recentes.</p>
+                          <p className="text-xs text-slate-500 mt-1">Verifique sua API Key ou adicione mais tópicos.</p>
+                      </div>
+                  )}
+
+                  {newsArticles.map(article => (
+                      <NewsCard key={article.id} article={article} />
+                  ))}
+
+                  {/* Load More Button */}
+                  {newsArticles.length > 0 && (
+                      <button 
+                        onClick={() => loadNews(true, true)}
+                        disabled={isLoadingNews}
+                        className="w-full py-3 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 text-sm font-bold rounded-xl flex items-center justify-center gap-2 transition-colors disabled:opacity-50"
+                      >
+                         {isLoadingNews ? (
+                             <>
+                                <div className="w-4 h-4 border-2 border-slate-400 border-t-transparent rounded-full animate-spin"></div>
+                                Carregando mais...
+                             </>
+                         ) : (
+                             <>
+                                <PlusCircle className="w-4 h-4" /> Carregar Mais
+                             </>
+                         )}
+                      </button>
+                  )}
+              </div>
+          </div>
+      );
   };
 
   const renderWebsiteHub = () => {
@@ -767,7 +968,7 @@ const App: React.FC = () => {
     const offlineSites = sites.filter(s => s.status === SiteStatus.OFFLINE).length;
 
     return (
-        <div className="pb-20 animate-fade-in flex flex-col h-full pt-4">
+        <div className="pb-32 animate-fade-in flex flex-col h-full pt-4">
              <div className="flex flex-col mb-4 px-1">
                  <div className="flex justify-between items-center mb-4">
                     <h2 className="text-xl font-bold text-slate-100">Meus Sites</h2>
@@ -847,7 +1048,7 @@ const App: React.FC = () => {
 
   const renderGoogleHub = () => {
     return (
-        <div className="pb-20 animate-fade-in flex flex-col h-full pt-4">
+        <div className="pb-32 animate-fade-in flex flex-col h-full pt-4">
              <div className="flex flex-col mb-4 px-1">
                  <div className="flex justify-between items-center mb-4">
                     <h2 className="text-xl font-bold text-slate-100">E-mails</h2>
@@ -886,7 +1087,7 @@ const App: React.FC = () => {
     const hasApiKey = (dashPrefs.googleApiKey && dashPrefs.googleApiKey.length > 10) || (FALLBACK_API_KEY && FALLBACK_API_KEY.length > 10);
 
     return (
-      <div className="pb-20 animate-fade-in flex flex-col h-full pt-4">
+      <div className="pb-32 animate-fade-in flex flex-col h-full pt-4">
         <div className="flex justify-between items-center mb-4 px-1">
           <h2 className="text-xl font-bold text-slate-100">Agenda</h2>
           <div className="flex gap-2">
@@ -978,15 +1179,21 @@ const App: React.FC = () => {
          </div>
       </header>
 
-      <main className="max-w-md mx-auto min-h-screen relative pt-[calc(4rem+env(safe-area-inset-top,20px))] px-4 pb-safe-area">
+      <main 
+        className="max-w-md mx-auto min-h-screen relative pt-[calc(4rem+env(safe-area-inset-top,20px))] px-4 pb-safe-area"
+        onTouchStart={handleTouchStart}
+        onTouchMove={handleTouchMove}
+        onTouchEnd={handleTouchEnd}
+      >
         {currentView === ViewState.DASHBOARD && renderDashboard()}
         {currentView === ViewState.WEBSITES && renderWebsiteHub()}
         {currentView === ViewState.GOOGLE && renderGoogleHub()}
         {currentView === ViewState.CALENDAR && renderCalendarHub()}
+        {currentView === ViewState.NEWS && renderNewsHub()}
         {currentView === ViewState.TRELLO && (
             <>
               {!trelloKey || !trelloToken ? (
-                  <div className="pb-20 animate-fade-in px-4 pt-4">
+                  <div className="pb-32 animate-fade-in px-4 pt-4">
                     <h2 className="text-xl font-bold text-slate-100 mb-4">Configurar Trello</h2>
                     <div className="bg-slate-800 p-4 rounded-xl border border-slate-700 space-y-4">
                         <input type="text" value={trelloKey} onChange={e => setTrelloKey(e.target.value)} className="w-full bg-slate-900 border border-slate-700 rounded-lg p-3 text-sm" placeholder="API Key" />
@@ -997,7 +1204,7 @@ const App: React.FC = () => {
                     </div>
                   </div>
               ) : !trelloBoardId || isSelectingLists ? (
-                  <div className="pb-20 animate-fade-in px-4 pt-4">
+                  <div className="pb-32 animate-fade-in px-4 pt-4">
                       <div className="flex justify-between items-center mb-4"><h2 className="text-xl font-bold text-slate-100">Configurar Listas</h2><button onClick={() => setTrelloKey('')} className="text-xs text-rose-400">Sair</button></div>
                       {!trelloBoardId && availableBoards.map(b => <button key={b.id} onClick={() => {setTrelloBoardId(b.id); loadTrelloLists(b.id);}} className="w-full text-left p-3 bg-slate-800 mb-2 rounded-lg">{b.name}</button>)}
                       {trelloBoardId && (
@@ -1014,7 +1221,7 @@ const App: React.FC = () => {
                       )}
                   </div>
               ) : (
-                  <div className="pb-20 animate-fade-in pt-4">
+                  <div className="pb-32 animate-fade-in pt-4">
                       <div className="flex justify-between items-center mb-4 px-1">
                           <div className="flex items-center gap-2"><h2 className="text-xl font-bold text-slate-100">Trello</h2><span className="text-xs bg-slate-800 text-slate-400 px-2 py-1 rounded-full">{trelloCards.length}</span></div>
                           <div className="flex gap-2"><button onClick={() => setIsSelectingLists(true)} className="p-2 text-slate-400"><Settings className="w-5 h-5" /></button><button onClick={fetchTrelloCards} className={`p-2 bg-blue-500/20 text-blue-400 rounded-full ${isLoadingTrello ? 'animate-spin' : ''}`}><RefreshCw className="w-4 h-4" /></button></div>
@@ -1047,6 +1254,7 @@ const App: React.FC = () => {
         onClose={() => setIsConfigModalOpen(false)}
         preferences={dashPrefs}
         onTogglePreference={(key) => setDashPrefs(prev => ({ ...prev, [key]: !prev[key as keyof typeof prev] }))}
+        onReorderDashboard={handleReorderDashboard}
         onUpdateApiKey={handleUpdateApiKey}
         notificationsEnabled={notifPermission === 'granted'}
         onToggleNotifications={requestNotificationPermission}
@@ -1055,6 +1263,8 @@ const App: React.FC = () => {
         calendarIds={calendarIds}
         onAddCalendar={handleAddCalendar}
         onRemoveCalendar={handleRemoveCalendar}
+        onAddNewsTopic={handleAddNewsTopic}
+        onRemoveNewsTopic={handleRemoveNewsTopic}
       />
 
       <TabNav 

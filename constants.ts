@@ -1,5 +1,4 @@
 
-
 import { SiteConfig, SiteStatus, FormSubmission } from './types';
 
 // Chave secreta definida pelo usuário
@@ -45,6 +44,14 @@ export const DEFAULT_SITES: SiteConfig[] = [
     onlineUsers: 0,
     monthlyVisitors: 0,
   }
+];
+
+export const DEFAULT_NEWS_TOPICS = [
+  "counter-strike", 
+  "vasco", 
+  "f1", 
+  "rio do sul", 
+  "santa catarina"
 ];
 
 // Dados iniciais de exemplo

@@ -105,6 +105,17 @@ export interface CalendarEvent {
   status?: string;
 }
 
+// Tipos de Notícias
+export interface NewsArticle {
+  id: string;
+  topic: string;
+  title: string;
+  summary: string;
+  source: string;
+  publishedAt?: string;
+  url?: string; // URL extraída do grounding ou busca
+}
+
 // Preferências do Dashboard
 export interface DashboardPrefs {
   showSites: boolean;
@@ -113,6 +124,8 @@ export interface DashboardPrefs {
   showWeather: boolean;
   showCalendar: boolean;
   googleApiKey?: string; // Nova chave para persistir a API Key pública
+  newsTopics: string[]; // Tópicos de notícias
+  dashboardOrder?: string[]; // Ordem dos widgets na tela inicial
 }
 
 export enum ViewState {
@@ -120,5 +133,6 @@ export enum ViewState {
   WEBSITES = 'WEBSITES', // Unificado (Sites + Forms)
   GOOGLE = 'GOOGLE',
   TRELLO = 'TRELLO',
-  CALENDAR = 'CALENDAR'
+  CALENDAR = 'CALENDAR',
+  NEWS = 'NEWS'
 }

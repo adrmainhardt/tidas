@@ -22,7 +22,7 @@ import { generateDashboardInsight } from './services/geminiService';
 import { fetchNewsWithAI } from './services/newsService';
 import { fetchWeather, fetchLocationName, getWeatherInfo } from './services/weatherService';
 import { fetchCalendarEvents } from './services/calendarService'; 
-import { Activity, RefreshCw, AlertTriangle, WifiOff, Trash2, BarChart3, Mail, LogIn, LogOut, Copy, Info, Check, Trello, Settings, CheckSquare, ExternalLink, HelpCircle, Bell, Sparkles, X, Globe, MessageSquareText, Save, Send, User, ChevronDown, ChevronUp, AlertOctagon, Menu, Calendar, Star, Key, Newspaper, PlusCircle } from 'lucide-react';
+import { Activity, RefreshCw, AlertTriangle, WifiOff, Trash2, BarChart3, Mail, LogIn, LogOut, Copy, Info, Check, Trello, Settings, CheckSquare, ExternalLink, HelpCircle, Bell, Sparkles, X, Globe, MessageSquareText, Save, Send, User, ChevronDown, ChevronUp, AlertOctagon, Menu, Calendar, Star, Key, Newspaper, PlusCircle, Wrench } from 'lucide-react';
 
 declare global {
   interface Window {
@@ -83,7 +83,7 @@ const playNotificationSound = () => {
 
 const TRELLO_COLORS = ['blue', 'amber', 'emerald', 'purple', 'rose', 'cyan', 'indigo', 'lime'];
 
-const App: React.FC = () => {
+const App: React.ReactElement = () => {
   const [currentView, setCurrentView] = useState<ViewState>(ViewState.DASHBOARD);
   const [sites, setSites] = useState<SiteConfig[]>(DEFAULT_SITES);
   const [forms, setForms] = useState<FormSubmission[]>(MOCK_FORMS);
@@ -132,8 +132,8 @@ const App: React.FC = () => {
   const [isSideMenuOpen, setIsSideMenuOpen] = useState(false);
   const [isConfigModalOpen, setIsConfigModalOpen] = useState(false);
 
-  // v15: Added dashboardOrder
-  const [dashPrefs, setDashPrefs] = usePersistedState<DashboardPrefs>('dashboard_prefs_v15', {
+  // v16: Added dashboardOrder and update for new Fallback Key
+  const [dashPrefs, setDashPrefs] = usePersistedState<DashboardPrefs>('dashboard_prefs_v16', {
       showSites: true,
       showTrello: true,
       showGoogle: true,
@@ -930,10 +930,13 @@ const App: React.FC = () => {
                           <h3 className="text-rose-400 font-bold flex items-center gap-2"><AlertOctagon className="w-4 h-4"/> Erro ao carregar</h3>
                           <p className="text-rose-300 text-xs mt-1">{newsError}</p>
                           
-                          {newsError.includes("403") && (
-                             <div className="mt-3 bg-rose-950/30 p-2 rounded border border-rose-500/20">
-                                 <p className="text-[10px] text-rose-200 mb-1">
-                                     O Google Cloud bloqueou este domínio. Adicione-o nas restrições da API Key:
+                          {newsError.includes("403") ? (
+                             <div className="mt-3 bg-rose-950/30 p-2 rounded border border-rose-500/20 space-y-2">
+                                 <p className="text-[11px] text-rose-200 mb-1 font-bold">
+                                     Atenção: Você configurou o "ID do Cliente OAuth" (Login), mas para Notícias é necessário editar a <span className="underline decoration-2 decoration-rose-400">API Key</span> (ícone de chave 🔑).
+                                 </p>
+                                 <p className="text-[10px] text-rose-300 mb-1">
+                                     Adicione o domínio abaixo nas restrições da sua API Key:
                                  </p>
                                  <div className="flex items-center gap-2">
                                      <code className="text-[10px] bg-black/30 px-1 py-0.5 rounded flex-1 truncate text-rose-100">
@@ -949,6 +952,25 @@ const App: React.FC = () => {
                                          Copiar
                                      </button>
                                  </div>
+                                 
+                                 <a 
+                                    href="https://console.cloud.google.com/apis/credentials" 
+                                    target="_blank" 
+                                    rel="noopener noreferrer"
+                                    className="block text-center text-[10px] font-bold bg-rose-600 hover:bg-rose-500 text-white py-2 rounded-lg transition-colors flex items-center justify-center gap-1"
+                                 >
+                                    <Wrench className="w-3 h-3" /> Abrir Google Console (Busque pela Chave 🔑)
+                                 </a>
+                             </div>
+                          ) : (
+                             // Helper genérico para quando não há chave ou chave inválida
+                             <div className="mt-3">
+                                 <button 
+                                     onClick={() => setIsConfigModalOpen(true)}
+                                     className="w-full text-[11px] font-bold bg-rose-600 hover:bg-rose-500 text-white py-2 rounded-lg"
+                                 >
+                                     Verificar ou Criar Chave nas Configurações
+                                 </button>
                              </div>
                           )}
                       </div>

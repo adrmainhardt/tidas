@@ -1,6 +1,6 @@
 
 import React, { useEffect, useState } from 'react';
-import { X, Settings, Bell, MapPin, ToggleLeft, ToggleRight, LayoutDashboard, Mail, Calendar, Plus, Trash2, Key, Newspaper, Hash, ArrowUp, ArrowDown } from 'lucide-react';
+import { X, Settings, Bell, MapPin, ToggleLeft, ToggleRight, LayoutDashboard, Mail, Calendar, Plus, Trash2, Key, Newspaper, Hash, ArrowUp, ArrowDown, ExternalLink, AlertTriangle } from 'lucide-react';
 import { DashboardPrefs } from '../types';
 
 interface ConfigModalProps {
@@ -36,18 +36,36 @@ const ConfigModal: React.FC<ConfigModalProps> = ({
   const [newCalendarInput, setNewCalendarInput] = useState('');
   const [newTopicInput, setNewTopicInput] = useState('');
   const [apiKeyInput, setApiKeyInput] = useState(preferences.googleApiKey || '');
+  const [apiKeyWarning, setApiKeyWarning] = useState<string | null>(null);
 
   useEffect(() => {
     if (isOpen) {
       setIsVisible(true);
       document.body.style.overflow = 'hidden';
       setApiKeyInput(preferences.googleApiKey || '');
+      setApiKeyWarning(null);
     } else {
       const timer = setTimeout(() => setIsVisible(false), 300);
       document.body.style.overflow = 'unset';
       return () => clearTimeout(timer);
     }
   }, [isOpen, preferences.googleApiKey]);
+
+  const validateApiKey = (key: string) => {
+      const trimmed = key.trim();
+      if (trimmed.length > 0) {
+          if (!trimmed.startsWith('AIza')) {
+              setApiKeyWarning("Isso não parece uma API Key válida (deve começar com 'AIza'). Você pode ter copiado o ID do Cliente por engano.");
+          } else if (trimmed.includes('googleusercontent.com')) {
+              setApiKeyWarning("Este é um ID de Cliente OAuth, não uma API Key. Crie uma 'Chave de API' no console.");
+          } else {
+              setApiKeyWarning(null);
+          }
+      } else {
+          setApiKeyWarning(null);
+      }
+      setApiKeyInput(trimmed);
+  };
 
   const handleSave = () => {
     onUpdateApiKey(apiKeyInput.trim());
@@ -171,6 +189,42 @@ const ConfigModal: React.FC<ConfigModalProps> = ({
         <div className="flex-1 overflow-y-auto p-5 space-y-6">
             
             <div className="space-y-3">
+                <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider px-1">Credenciais</h3>
+                <div className="bg-slate-900/50 p-4 rounded-xl border border-slate-800">
+                    <div className="flex items-center gap-2 mb-2">
+                        <Key className="w-4 h-4 text-amber-400" />
+                        <span className="text-xs font-bold text-slate-300">Google API Key (Pública)</span>
+                    </div>
+                    
+                    <div className="bg-slate-950/50 p-3 rounded-lg border border-slate-800/50 mb-3 space-y-2">
+                        <p className="text-[10px] text-slate-400 font-bold">
+                            Não tem uma chave? Siga os passos:
+                        </p>
+                        <ol className="text-[10px] text-slate-500 list-decimal pl-3 space-y-1">
+                            <li>Acesse o <a href="https://console.cloud.google.com/apis/credentials" target="_blank" className="text-blue-400 underline">Google Console</a>.</li>
+                            <li>No topo, clique em <span className="font-bold text-slate-300">+ CRIAR CREDENCIAIS</span>.</li>
+                            <li>Selecione <span className="font-bold text-slate-300">Chave de API</span> (API Key).</li>
+                            <li>Copie o código que começa com <code className="bg-slate-800 px-1 rounded text-amber-500">AIza</code>.</li>
+                        </ol>
+                    </div>
+
+                    <input 
+                        type="text" 
+                        value={apiKeyInput}
+                        onChange={(e) => validateApiKey(e.target.value)}
+                        placeholder="Cole sua chave AIza... aqui"
+                        className={`w-full bg-slate-950 border rounded-lg px-3 py-2 text-xs text-slate-200 outline-none focus:border-amber-500 ${apiKeyWarning ? 'border-rose-500/50 focus:border-rose-500' : 'border-slate-700'}`}
+                    />
+                    {apiKeyWarning && (
+                        <div className="mt-2 flex items-start gap-1.5 text-rose-400 text-[10px] leading-tight bg-rose-950/20 p-2 rounded border border-rose-900/50">
+                            <AlertTriangle className="w-3 h-3 shrink-0 mt-0.5" />
+                            <span>{apiKeyWarning}</span>
+                        </div>
+                    )}
+                </div>
+            </div>
+
+            <div className="space-y-3">
                 <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider px-1">Layout e Ordem</h3>
                 <div className="bg-slate-900/30 rounded-xl border border-slate-800 overflow-hidden">
                     {currentOrder.filter(id => id !== 'notifications').map((id, index, arr) => (
@@ -229,26 +283,6 @@ const ConfigModal: React.FC<ConfigModalProps> = ({
                     checked={preferences.showWeather} 
                     onChange={() => onTogglePreference('showWeather')} 
                 />
-            </div>
-
-            <div className="space-y-3">
-                <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider px-1">Credenciais</h3>
-                <div className="bg-slate-900/50 p-4 rounded-xl border border-slate-800">
-                    <div className="flex items-center gap-2 mb-2">
-                        <Key className="w-4 h-4 text-amber-400" />
-                        <span className="text-xs font-bold text-slate-300">Google API Key (Pública)</span>
-                    </div>
-                    <p className="text-[10px] text-slate-500 mb-2 leading-relaxed">
-                        Necessária para carregar agendas públicas e buscar Notícias (IA). 
-                    </p>
-                    <input 
-                        type="text" 
-                        value={apiKeyInput}
-                        onChange={(e) => setApiKeyInput(e.target.value)}
-                        placeholder="Cole sua API Key aqui..."
-                        className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs text-slate-200 outline-none focus:border-amber-500"
-                    />
-                </div>
             </div>
 
             {/* Configuração de Notícias */}

@@ -7,7 +7,7 @@ const SHARED_SECRET_KEY = '157918';
 
 // IMPORTANTE: Cole sua chave da Google Gemini API aqui para funcionar no celular
 // O ambiente mobile muitas vezes não carrega o process.env corretamente.
-export const FALLBACK_API_KEY = 'AIzaSyBTkEAGaDWrlBoSPCG8f-IhUi4L7PF4Z-Y';
+export const FALLBACK_API_KEY = 'AIzaSyCSVY3e2kD2B83ZvkylABltY_FRPfJ0qrc';
 
 // IMPORTANTE: Substitua pelo seu Client ID do Google Cloud Console
 export const GOOGLE_CLIENT_ID = '914404526546-l7d1ke1tp2uu8nrfp9a3aj8eenlpvefs.apps.googleusercontent.com';

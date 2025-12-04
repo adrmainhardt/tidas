@@ -109,6 +109,7 @@ const App: React.FC = () => {
   const [newsArticles, setNewsArticles] = useState<NewsArticle[]>([]);
   const [isLoadingNews, setIsLoadingNews] = useState(false);
   const [lastNewsFetch, setLastNewsFetch] = usePersistedState<number>('monitor_last_news_fetch', 0);
+  const [newsError, setNewsError] = useState<string | null>(null);
 
   const [googleToken, setGoogleToken] = usePersistedState<string | null>('monitor_google_token_v2', null);
   const [emails, setEmails] = useState<EmailMessage[]>([]);
@@ -196,6 +197,8 @@ const App: React.FC = () => {
     }
     
     setIsLoadingNews(true);
+    setNewsError(null);
+
     try {
         const effectiveKey = (dashPrefs.googleApiKey && dashPrefs.googleApiKey.trim() !== '') 
                              ? dashPrefs.googleApiKey 
@@ -211,7 +214,6 @@ const App: React.FC = () => {
         
         if (newArticles.length > 0) {
             if (append) {
-                // Filtra duplicados pelo título para não repetir notícias
                 setNewsArticles(prev => {
                     const existingTitles = new Set(prev.map(a => a.title));
                     const filteredNew = newArticles.filter(a => !existingTitles.has(a.title));
@@ -222,8 +224,9 @@ const App: React.FC = () => {
             }
             setLastNewsFetch(Date.now());
         }
-    } catch (e) {
+    } catch (e: any) {
         console.error("Erro ao carregar notícias:", e);
+        setNewsError(e.message || "Falha ao carregar notícias");
     } finally {
         setIsLoadingNews(false);
     }
@@ -920,6 +923,16 @@ const App: React.FC = () => {
               </div>
 
               <div className="space-y-4">
+                  
+                  {/* Error State */}
+                  {newsError && (
+                      <div className="bg-rose-500/10 border border-rose-500/30 p-4 rounded-xl mb-4">
+                          <h3 className="text-rose-400 font-bold flex items-center gap-2"><AlertOctagon className="w-4 h-4"/> Erro ao carregar</h3>
+                          <p className="text-rose-300 text-xs mt-1">{newsError}</p>
+                          <p className="text-slate-500 text-[10px] mt-2">Verifique sua API Key nas configurações (precisa estar ativa para Google Search).</p>
+                      </div>
+                  )}
+
                   {isLoadingNews && newsArticles.length === 0 && (
                       <div className="flex flex-col items-center py-10">
                           <div className="w-8 h-8 border-2 border-cyan-500 border-t-transparent rounded-full animate-spin mb-3"></div>
@@ -927,7 +940,7 @@ const App: React.FC = () => {
                       </div>
                   )}
 
-                  {!isLoadingNews && newsArticles.length === 0 && (
+                  {!isLoadingNews && !newsError && newsArticles.length === 0 && (
                       <div className="bg-slate-800 p-6 rounded-xl border border-slate-700 text-center">
                           <Newspaper className="w-10 h-10 text-slate-600 mx-auto mb-3" />
                           <p className="text-slate-300 font-bold">Sem notícias recentes.</p>
@@ -940,7 +953,7 @@ const App: React.FC = () => {
                   ))}
 
                   {/* Load More Button */}
-                  {newsArticles.length > 0 && (
+                  {newsArticles.length > 0 && !newsError && (
                       <button 
                         onClick={() => loadNews(true, true)}
                         disabled={isLoadingNews}

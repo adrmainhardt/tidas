@@ -929,7 +929,28 @@ const App: React.FC = () => {
                       <div className="bg-rose-500/10 border border-rose-500/30 p-4 rounded-xl mb-4">
                           <h3 className="text-rose-400 font-bold flex items-center gap-2"><AlertOctagon className="w-4 h-4"/> Erro ao carregar</h3>
                           <p className="text-rose-300 text-xs mt-1">{newsError}</p>
-                          <p className="text-slate-500 text-[10px] mt-2">Verifique sua API Key nas configurações (precisa estar ativa para Google Search).</p>
+                          
+                          {newsError.includes("403") && (
+                             <div className="mt-3 bg-rose-950/30 p-2 rounded border border-rose-500/20">
+                                 <p className="text-[10px] text-rose-200 mb-1">
+                                     O Google Cloud bloqueou este domínio. Adicione-o nas restrições da API Key:
+                                 </p>
+                                 <div className="flex items-center gap-2">
+                                     <code className="text-[10px] bg-black/30 px-1 py-0.5 rounded flex-1 truncate text-rose-100">
+                                         {window.location.origin}
+                                     </code>
+                                     <button 
+                                         onClick={() => {
+                                             navigator.clipboard.writeText(window.location.origin);
+                                             alert("Domínio copiado!");
+                                         }}
+                                         className="text-[10px] bg-rose-500/20 hover:bg-rose-500/40 text-rose-200 px-2 py-1 rounded"
+                                     >
+                                         Copiar
+                                     </button>
+                                 </div>
+                             </div>
+                          )}
                       </div>
                   )}
 

@@ -1,6 +1,6 @@
 
 import React, { useEffect, useState } from 'react';
-import { X, Settings, Bell, MapPin, ToggleLeft, ToggleRight, LayoutDashboard, Mail, Calendar, Plus, Trash2, Key } from 'lucide-react';
+import { X, Settings, Bell, MapPin, ToggleLeft, ToggleRight, LayoutDashboard, Mail, Calendar, Plus, Trash2, Key, Newspaper, Hash, ArrowUp, ArrowDown } from 'lucide-react';
 import { DashboardPrefs } from '../types';
 
 interface ConfigModalProps {
@@ -8,6 +8,7 @@ interface ConfigModalProps {
   onClose: () => void;
   preferences: DashboardPrefs;
   onTogglePreference: (key: keyof DashboardPrefs) => void;
+  onReorderDashboard?: (newOrder: string[]) => void;
   onUpdateApiKey: (key: string) => void;
   notificationsEnabled: boolean;
   onToggleNotifications: () => void;
@@ -17,18 +18,23 @@ interface ConfigModalProps {
   calendarIds?: string[];
   onAddCalendar?: (id: string) => void;
   onRemoveCalendar?: (id: string) => void;
+  // News Props
+  onAddNewsTopic?: (topic: string) => void;
+  onRemoveNewsTopic?: (topic: string) => void;
 }
 
 const ConfigModal: React.FC<ConfigModalProps> = ({ 
     isOpen, onClose, 
-    preferences, onTogglePreference, onUpdateApiKey,
+    preferences, onTogglePreference, onReorderDashboard, onUpdateApiKey,
     notificationsEnabled, onToggleNotifications,
     locationEnabled, onToggleLocation,
-    calendarIds = [], onAddCalendar, onRemoveCalendar
+    calendarIds = [], onAddCalendar, onRemoveCalendar,
+    onAddNewsTopic, onRemoveNewsTopic
 }) => {
   
   const [isVisible, setIsVisible] = useState(false);
   const [newCalendarInput, setNewCalendarInput] = useState('');
+  const [newTopicInput, setNewTopicInput] = useState('');
   const [apiKeyInput, setApiKeyInput] = useState(preferences.googleApiKey || '');
 
   useEffect(() => {
@@ -48,75 +54,84 @@ const ConfigModal: React.FC<ConfigModalProps> = ({
     onClose();
   };
 
+  const handleAddTopic = () => {
+    if (newTopicInput.trim() && onAddNewsTopic) {
+        onAddNewsTopic(newTopicInput.trim());
+        setNewTopicInput('');
+    }
+  };
+
   const extractCalendarId = (input: string): string | null => {
     if (!input || !input.trim()) return null;
 
     try {
       let cleaned = input.trim();
       
-      // 1. Tenta decodificar URL (ex: %40 -> @)
       try {
         cleaned = decodeURIComponent(cleaned);
-      } catch (e) {
-        // Se falhar, usa o original
-      }
+      } catch (e) {}
 
-      // 2. Regex para URL Embed (src=...)
-      // Ex: src=xxxxx@group.calendar.google.com
       const srcMatch = cleaned.match(/src=([^&]+)/);
-      if (srcMatch && srcMatch[1]) {
-        return srcMatch[1];
-      }
+      if (srcMatch && srcMatch[1]) return srcMatch[1];
       
-      // 3. Regex para URL pública ICS (/ical/)
-      // Ex: .../calendar/ical/xxxxx@group.calendar.google.com/public...
       const icalMatch = cleaned.match(/\/ical\/([^/]+)\//);
-      if (icalMatch && icalMatch[1]) {
-          return icalMatch[1];
-      }
+      if (icalMatch && icalMatch[1]) return icalMatch[1];
 
-      // 4. Regex para parâmetro 'cid='
       const cidMatch = cleaned.match(/cid=([^&]+)/);
-      if (cidMatch && cidMatch[1]) {
-        return cidMatch[1];
-      }
+      if (cidMatch && cidMatch[1]) return cidMatch[1];
 
-      // 5. Se for um ID direto (contém @ e não é url completa)
       if (cleaned.includes('@') && !cleaned.includes('http') && !cleaned.includes('calendar.google.com')) {
         return cleaned;
       }
 
-      // Fallback: Se o usuário colou uma URL inteira mas nenhuma regex pegou, 
-      // tenta achar algo que pareça um email no meio
       const emailMatch = cleaned.match(/([a-zA-Z0-9._-]+@[a-zA-Z0-9._-]+\.[a-zA-Z0-9._-]+)/);
-      if (emailMatch && emailMatch[1]) {
-          return emailMatch[1];
-      }
+      if (emailMatch && emailMatch[1]) return emailMatch[1];
 
       return null;
     } catch (e) {
-      console.error("Erro ao extrair ID da agenda", e);
       return null;
     }
   };
 
   const handleAddCalendar = () => {
     if (!newCalendarInput || !onAddCalendar) return;
-    
     const extractedId = extractCalendarId(newCalendarInput);
-    
     if (extractedId) {
        onAddCalendar(extractedId);
        setNewCalendarInput('');
     } else {
-       alert("Não foi possível identificar o ID da agenda. Tente copiar apenas o ID (ex: xxx@group.calendar.google.com).");
+       alert("ID inválido.");
     }
+  };
+
+  const moveItem = (index: number, direction: 'up' | 'down') => {
+      if (!onReorderDashboard || !preferences.dashboardOrder) return;
+      const newOrder = [...preferences.dashboardOrder];
+      if (direction === 'up') {
+          if (index === 0) return;
+          [newOrder[index - 1], newOrder[index]] = [newOrder[index], newOrder[index - 1]];
+      } else {
+          if (index === newOrder.length - 1) return;
+          [newOrder[index + 1], newOrder[index]] = [newOrder[index], newOrder[index + 1]];
+      }
+      onReorderDashboard(newOrder);
   };
 
   if (!isVisible && !isOpen) return null;
 
+  const currentOrder = preferences.dashboardOrder || ['insight', 'news', 'weather', 'shortcuts', 'sites_list'];
+  
+  const blockNames: Record<string, string> = {
+      insight: 'Insight do Dia',
+      news: 'Destaques Notícias',
+      weather: 'Clima',
+      shortcuts: 'Atalhos (Grade)',
+      sites_list: 'Lista de Sites',
+      notifications: 'Botão Notificações'
+  };
+
   const ToggleItem = ({ label, icon: Icon, checked, onChange, description }: any) => (
-    <div className="flex items-center justify-between p-4 bg-slate-900/50 rounded-xl border border-slate-800">
+    <div className="flex items-center justify-between p-3 bg-slate-900/50 rounded-xl border border-slate-800">
         <div className="flex items-center gap-3">
             <div className={`p-2 rounded-lg ${checked ? 'bg-blue-500/20 text-blue-400' : 'bg-slate-800 text-slate-500'}`}>
                 <Icon className="w-5 h-5" />
@@ -156,9 +171,36 @@ const ConfigModal: React.FC<ConfigModalProps> = ({
         <div className="flex-1 overflow-y-auto p-5 space-y-6">
             
             <div className="space-y-3">
-                <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider px-1">Visualização</h3>
+                <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider px-1">Layout e Ordem</h3>
+                <div className="bg-slate-900/30 rounded-xl border border-slate-800 overflow-hidden">
+                    {currentOrder.filter(id => id !== 'notifications').map((id, index, arr) => (
+                        <div key={id} className="flex items-center justify-between p-3 border-b border-slate-800/50 last:border-0 hover:bg-slate-800/30">
+                            <span className="text-sm font-medium text-slate-300">{blockNames[id] || id}</span>
+                            <div className="flex gap-1">
+                                <button 
+                                    onClick={() => moveItem(currentOrder.indexOf(id), 'up')} 
+                                    disabled={currentOrder.indexOf(id) === 0}
+                                    className="p-1 text-slate-500 hover:text-white disabled:opacity-20 hover:bg-slate-700 rounded"
+                                >
+                                    <ArrowUp className="w-4 h-4" />
+                                </button>
+                                <button 
+                                    onClick={() => moveItem(currentOrder.indexOf(id), 'down')} 
+                                    disabled={currentOrder.indexOf(id) === currentOrder.length - 1}
+                                    className="p-1 text-slate-500 hover:text-white disabled:opacity-20 hover:bg-slate-700 rounded"
+                                >
+                                    <ArrowDown className="w-4 h-4" />
+                                </button>
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            </div>
+
+            <div className="space-y-3">
+                <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider px-1">Atalhos Visíveis</h3>
                 <ToggleItem 
-                    label="Sites & Forms" 
+                    label="Lista de Sites" 
                     icon={LayoutDashboard} 
                     checked={preferences.showSites} 
                     onChange={() => onTogglePreference('showSites')} 
@@ -182,7 +224,7 @@ const ConfigModal: React.FC<ConfigModalProps> = ({
                     onChange={() => onTogglePreference('showCalendar')} 
                 />
                 <ToggleItem 
-                    label="Clima" 
+                    label="Clima Widget" 
                     icon={LayoutDashboard} 
                     checked={preferences.showWeather} 
                     onChange={() => onTogglePreference('showWeather')} 
@@ -197,8 +239,7 @@ const ConfigModal: React.FC<ConfigModalProps> = ({
                         <span className="text-xs font-bold text-slate-300">Google API Key (Pública)</span>
                     </div>
                     <p className="text-[10px] text-slate-500 mb-2 leading-relaxed">
-                        Necessária para carregar agendas públicas. 
-                        Crie uma chave no Google Cloud Console com "Calendar API" ativada.
+                        Necessária para carregar agendas públicas e buscar Notícias (IA). 
                     </p>
                     <input 
                         type="text" 
@@ -209,6 +250,44 @@ const ConfigModal: React.FC<ConfigModalProps> = ({
                     />
                 </div>
             </div>
+
+            {/* Configuração de Notícias */}
+            {onAddNewsTopic && onRemoveNewsTopic && (
+                <div className="space-y-3">
+                    <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider px-1">Notícias</h3>
+                    <div className="bg-slate-900/50 p-3 rounded-xl border border-slate-800">
+                        <p className="text-[10px] text-slate-400 mb-2">
+                            Assuntos de interesse para o feed:
+                        </p>
+                        <div className="flex gap-2 mb-3">
+                            <input 
+                                type="text" 
+                                value={newTopicInput}
+                                onChange={(e) => setNewTopicInput(e.target.value)}
+                                onKeyDown={(e) => e.key === 'Enter' && handleAddTopic()}
+                                placeholder="Novo assunto (ex: Tecnologia)..."
+                                className="flex-1 bg-slate-950 border border-slate-700 rounded-lg px-2 py-2 text-xs text-slate-200 outline-none focus:border-emerald-500"
+                            />
+                            <button onClick={handleAddTopic} className="bg-emerald-600 text-white p-2 rounded-lg hover:bg-emerald-500">
+                                <Plus className="w-4 h-4" />
+                            </button>
+                        </div>
+                        
+                        <div className="flex flex-wrap gap-2">
+                            {preferences.newsTopics && preferences.newsTopics.map(topic => (
+                                <div key={topic} className="flex items-center gap-1 bg-slate-800 px-2 py-1 rounded-full border border-slate-700/50">
+                                    <Hash className="w-3 h-3 text-slate-500" />
+                                    <span className="text-[10px] text-slate-300 font-medium">{topic}</span>
+                                    <button onClick={() => onRemoveNewsTopic(topic)} className="ml-1 text-slate-500 hover:text-rose-400">
+                                        <X className="w-3 h-3" />
+                                    </button>
+                                </div>
+                            ))}
+                            {(!preferences.newsTopics || preferences.newsTopics.length === 0) && <p className="text-[10px] text-slate-600 italic py-1">Nenhum assunto definido.</p>}
+                        </div>
+                    </div>
+                </div>
+            )}
 
             {onAddCalendar && onRemoveCalendar && (
                <div className="space-y-3">

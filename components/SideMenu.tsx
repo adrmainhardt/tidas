@@ -1,6 +1,6 @@
 
 import React, { useEffect, useState } from 'react';
-import { Sparkles, Globe, MessageSquareText, Mail, Trello, X, ChevronRight, Calendar } from 'lucide-react';
+import { Sparkles, Globe, MessageSquareText, Mail, Trello, X, ChevronRight, Calendar, Newspaper } from 'lucide-react';
 
 interface SideMenuProps {
   isOpen: boolean;
@@ -69,6 +69,13 @@ const SideMenu: React.FC<SideMenuProps> = ({ isOpen, onClose, onNavigate, onGene
       bg: 'bg-purple-400/10'
     },
     { 
+      label: 'Notícias', 
+      icon: Newspaper, 
+      action: () => { onNavigate('NEWS'); onClose(); },
+      color: 'text-cyan-400',
+      bg: 'bg-cyan-400/10'
+    },
+    { 
       label: 'Trello', 
       icon: Trello, 
       action: () => { onNavigate('TRELLO'); onClose(); },
@@ -79,15 +86,12 @@ const SideMenu: React.FC<SideMenuProps> = ({ isOpen, onClose, onNavigate, onGene
   ];
 
   return (
-    // Alterado: justify-start para alinhar à esquerda
     <div className="fixed inset-0 z-[100] flex justify-start">
-      {/* Backdrop */}
       <div 
         className={`absolute inset-0 bg-slate-900/60 backdrop-blur-sm transition-opacity duration-300 ${isOpen ? 'opacity-100' : 'opacity-0'}`}
         onClick={onClose}
       />
 
-      {/* Drawer na Esquerda */}
       <div 
         className={`relative w-[80%] max-w-[300px] h-full bg-slate-800 border-r border-slate-800 shadow-2xl transform transition-transform duration-300 ease-out pt-safe-area flex flex-col ${isOpen ? 'translate-x-0' : '-translate-x-full'}`}
       >
@@ -127,7 +131,7 @@ const SideMenu: React.FC<SideMenuProps> = ({ isOpen, onClose, onNavigate, onGene
         </div>
 
         <div className="p-6 border-t border-slate-800 text-center">
-            <p className="text-xs text-slate-600">Tidas App v2.2</p>
+            <p className="text-xs text-slate-600">Tidas App v2.3</p>
         </div>
       </div>
     </div>

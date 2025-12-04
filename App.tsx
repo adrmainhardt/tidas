@@ -132,8 +132,8 @@ const App: React.ReactElement = () => {
   const [isSideMenuOpen, setIsSideMenuOpen] = useState(false);
   const [isConfigModalOpen, setIsConfigModalOpen] = useState(false);
 
-  // v17: Force update to clear old cached API Keys and use the correct FALLBACK
-  const [dashPrefs, setDashPrefs] = usePersistedState<DashboardPrefs>('dashboard_prefs_v17', {
+  // v18: Updated default order as requested: Insight -> Sites List -> Shortcuts -> News -> Weather
+  const [dashPrefs, setDashPrefs] = usePersistedState<DashboardPrefs>('dashboard_prefs_v18', {
       showSites: true,
       showTrello: true,
       showGoogle: true,
@@ -141,7 +141,7 @@ const App: React.ReactElement = () => {
       showCalendar: true,
       googleApiKey: FALLBACK_API_KEY,
       newsTopics: DEFAULT_NEWS_TOPICS,
-      dashboardOrder: ['insight', 'news', 'weather', 'notifications', 'shortcuts', 'sites_list']
+      dashboardOrder: ['insight', 'sites_list', 'shortcuts', 'news', 'weather', 'notifications']
   });
 
   const [trelloKey, setTrelloKey] = usePersistedState<string>('monitor_trello_key_v3', TRELLO_API_KEY);
@@ -904,7 +904,7 @@ const App: React.ReactElement = () => {
       ) : null
     };
 
-    const currentOrder = dashPrefs.dashboardOrder || ['insight', 'news', 'weather', 'notifications', 'shortcuts', 'sites_list'];
+    const currentOrder = dashPrefs.dashboardOrder || ['insight', 'sites_list', 'shortcuts', 'news', 'weather', 'notifications'];
 
     return (
       <div className="space-y-6 animate-fade-in pt-4 pb-32">
@@ -916,6 +916,8 @@ const App: React.ReactElement = () => {
   const renderNewsHub = () => {
       const effectiveKey = (dashPrefs.googleApiKey && dashPrefs.googleApiKey.trim() !== '') ? dashPrefs.googleApiKey : FALLBACK_API_KEY;
       const maskedKey = effectiveKey ? `${effectiveKey.substring(0, 8)}...${effectiveKey.substring(effectiveKey.length - 4)}` : 'Nenhuma';
+
+      const showErrorMessage = newsError && newsArticles.length === 0;
 
       return (
           <div className="pb-32 animate-fade-in flex flex-col h-full pt-4">
@@ -933,7 +935,7 @@ const App: React.ReactElement = () => {
               <div className="space-y-4">
                   
                   {/* Error State with Advanced Diagnostics */}
-                  {newsError && (
+                  {showErrorMessage && (
                       <div className="bg-rose-500/10 border border-rose-500/30 p-4 rounded-xl mb-4">
                           <h3 className="text-rose-400 font-bold flex items-center gap-2"><AlertOctagon className="w-4 h-4"/> Acesso Negado (403)</h3>
                           

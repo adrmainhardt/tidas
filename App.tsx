@@ -22,7 +22,7 @@ import { generateDashboardInsight } from './services/geminiService';
 import { fetchNewsWithAI } from './services/newsService';
 import { fetchWeather, fetchLocationName, getWeatherInfo } from './services/weatherService';
 import { fetchCalendarEvents } from './services/calendarService'; 
-import { Activity, RefreshCw, AlertTriangle, WifiOff, Trash2, BarChart3, Mail, LogIn, LogOut, Copy, Info, Check, Trello, Settings, CheckSquare, ExternalLink, HelpCircle, Bell, Sparkles, X, Globe, MessageSquareText, Save, Send, User, ChevronDown, ChevronUp, AlertOctagon, Menu, Calendar, Star, Key, Newspaper, PlusCircle, Wrench, Zap } from 'lucide-react';
+import { Activity, RefreshCw, AlertTriangle, WifiOff, Trash2, BarChart3, Mail, LogIn, LogOut, Copy, Info, Check, Trello, Settings, CheckSquare, ExternalLink, HelpCircle, Bell, Sparkles, X, Globe, MessageSquareText, Save, Send, User, ChevronDown, ChevronUp, AlertOctagon, Menu, Calendar, Star, Key, Newspaper, PlusCircle, Wrench, Zap, Terminal } from 'lucide-react';
 
 declare global {
   interface Window {
@@ -132,8 +132,8 @@ const App: React.ReactElement = () => {
   const [isSideMenuOpen, setIsSideMenuOpen] = useState(false);
   const [isConfigModalOpen, setIsConfigModalOpen] = useState(false);
 
-  // v16: Added dashboardOrder and update for new Fallback Key
-  const [dashPrefs, setDashPrefs] = usePersistedState<DashboardPrefs>('dashboard_prefs_v16', {
+  // v17: Force update to clear old cached API Keys and use the correct FALLBACK
+  const [dashPrefs, setDashPrefs] = usePersistedState<DashboardPrefs>('dashboard_prefs_v17', {
       showSites: true,
       showTrello: true,
       showGoogle: true,
@@ -370,6 +370,9 @@ const App: React.ReactElement = () => {
       fetchCalendarEvents({ token: googleToken, apiKey: key }, calendarIds)
         .then(events => setCalendarEvents(events))
         .finally(() => setIsLoadingCalendar(false));
+      
+      // Also refresh news
+      loadNews(true);
     }, 100);
   };
 
@@ -911,6 +914,9 @@ const App: React.ReactElement = () => {
   };
 
   const renderNewsHub = () => {
+      const effectiveKey = (dashPrefs.googleApiKey && dashPrefs.googleApiKey.trim() !== '') ? dashPrefs.googleApiKey : FALLBACK_API_KEY;
+      const maskedKey = effectiveKey ? `${effectiveKey.substring(0, 8)}...${effectiveKey.substring(effectiveKey.length - 4)}` : 'Nenhuma';
+
       return (
           <div className="pb-32 animate-fade-in flex flex-col h-full pt-4">
               <div className="flex justify-between items-center mb-4 px-1">
@@ -926,67 +932,65 @@ const App: React.ReactElement = () => {
 
               <div className="space-y-4">
                   
-                  {/* Error State */}
+                  {/* Error State with Advanced Diagnostics */}
                   {newsError && (
                       <div className="bg-rose-500/10 border border-rose-500/30 p-4 rounded-xl mb-4">
-                          <h3 className="text-rose-400 font-bold flex items-center gap-2"><AlertOctagon className="w-4 h-4"/> Erro ao carregar</h3>
-                          <p className="text-rose-300 text-xs mt-1">{newsError}</p>
+                          <h3 className="text-rose-400 font-bold flex items-center gap-2"><AlertOctagon className="w-4 h-4"/> Acesso Negado (403)</h3>
                           
-                          {/* Verifica se o erro é explicitamente sobre API desativada ou Permissão */}
-                          {(newsError.includes("403") || newsError.includes("API 'Generative Language API'")) ? (
-                             <div className="mt-3 bg-rose-950/30 p-2 rounded border border-rose-500/20 space-y-2">
-                                 <p className="text-[11px] text-rose-200 mb-1 font-bold">
-                                     Atenção: Você tem a chave, mas o serviço da IA não está ativado no Google Cloud.
-                                 </p>
-                                 <p className="text-[10px] text-rose-300 mb-1">
-                                     Clique abaixo, procure por <strong>"Gemini API"</strong> ou <strong>"Generative Language API"</strong> e clique em "ATIVAR":
-                                 </p>
-                                 <a 
-                                    href="https://console.cloud.google.com/apis/library/generativelanguage.googleapis.com" 
-                                    target="_blank" 
-                                    rel="noopener noreferrer"
-                                    className="block text-center text-[10px] font-bold bg-rose-600 hover:bg-rose-500 text-white py-2 rounded-lg transition-colors flex items-center justify-center gap-1"
-                                 >
-                                    <Zap className="w-3 h-3" /> Ativar API no Console
-                                 </a>
-                                 
-                                 <div className="mt-2 pt-2 border-t border-rose-800">
-                                     <p className="text-[10px] text-rose-300 mb-1">Se já ativou, adicione o domínio:</p>
-                                     <div className="flex items-center gap-2">
-                                         <code className="text-[9px] bg-black/30 px-1 py-0.5 rounded flex-1 truncate text-rose-100">
-                                             {window.location.origin}
+                          <div className="mt-2 bg-rose-950/40 p-3 rounded-lg border border-rose-900 text-[10px] text-rose-200">
+                             <p className="font-bold mb-2">Checklist de Solução:</p>
+                             
+                             <ul className="space-y-2 list-disc pl-3">
+                                <li>
+                                   <strong>API Ativada?</strong>
+                                   <br/>
+                                   <a href="https://console.cloud.google.com/apis/library/generativelanguage.googleapis.com" target="_blank" className="underline text-rose-300 hover:text-white">Ativar "Gemini API" no Console</a>
+                                </li>
+                                
+                                <li>
+                                    <strong>Restrições de Site (Curinga *)</strong>
+                                    <br/>
+                                    Adicione o link EXATAMENTE assim (com asterisco no final):
+                                    <div className="flex items-center gap-2 mt-1 mb-1">
+                                         <code className="bg-black/30 px-1 py-0.5 rounded text-rose-100 flex-1 truncate">
+                                             {window.location.origin}/*
                                          </code>
-                                         <button 
-                                             onClick={() => {
-                                                 navigator.clipboard.writeText(window.location.origin);
-                                                 alert("Domínio copiado!");
-                                             }}
-                                             className="text-[9px] bg-rose-500/20 hover:bg-rose-500/40 text-rose-200 px-2 py-1 rounded"
-                                         >
-                                             Copiar
-                                         </button>
-                                     </div>
-                                 </div>
-                                 
-                                 {/* Botão de Tentar Novamente */}
-                                 <button 
-                                    onClick={() => loadNews(true)}
-                                    className="w-full mt-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold py-2 rounded-lg transition-colors flex items-center justify-center gap-1"
-                                 >
-                                    <Check className="w-3 h-3" /> Já ativei, Tentar Novamente
-                                 </button>
-                             </div>
-                          ) : (
-                             // Helper genérico
-                             <div className="mt-3">
-                                 <button 
-                                     onClick={() => setIsConfigModalOpen(true)}
-                                     className="w-full text-[11px] font-bold bg-rose-600 hover:bg-rose-500 text-white py-2 rounded-lg"
-                                 >
-                                     Verificar Chave nas Configurações
-                                 </button>
-                             </div>
-                          )}
+                                         <button onClick={() => navigator.clipboard.writeText(window.location.origin + "/*")} className="text-rose-300 bg-rose-900/50 px-2 py-0.5 rounded hover:bg-rose-800">Copiar</button>
+                                    </div>
+                                    <span className="opacity-70 italic">Sem o *, o Google bloqueia sub-páginas.</span>
+                                </li>
+
+                                <li>
+                                    <strong>Chave em Uso:</strong> {maskedKey}
+                                </li>
+                             </ul>
+                             
+                             {/* Detalhe Técnico do Erro */}
+                             <details className="mt-3 opacity-70">
+                                 <summary className="cursor-pointer font-bold">Ver erro técnico do Google</summary>
+                                 <pre className="mt-1 p-2 bg-black/50 rounded overflow-x-auto text-[9px] font-mono whitespace-pre-wrap">
+                                     {newsError}
+                                 </pre>
+                             </details>
+                          </div>
+                          
+                          <div className="flex gap-2 mt-3">
+                             <button 
+                                onClick={() => {
+                                    setDashPrefs(p => ({...p, googleApiKey: FALLBACK_API_KEY}));
+                                    setTimeout(() => loadNews(true), 100);
+                                }}
+                                className="flex-1 bg-slate-700 hover:bg-slate-600 text-slate-300 text-xs font-bold py-3 rounded-lg transition-colors"
+                              >
+                                Restaurar Chave Padrão
+                              </button>
+                              <button 
+                                onClick={() => loadNews(true)}
+                                className="flex-1 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold py-3 rounded-lg transition-colors flex items-center justify-center gap-1"
+                              >
+                                <RefreshCw className="w-3 h-3" /> Tentar Novamente
+                              </button>
+                          </div>
                       </div>
                   )}
 

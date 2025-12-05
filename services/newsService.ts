@@ -1,26 +1,12 @@
 
-import { GoogleGenAI, SchemaType } from "@google/genai";
+import { GoogleGenAI } from "@google/genai";
 import { NewsArticle } from "../types";
 import { FALLBACK_API_KEY } from "../constants";
 
-// Definição de tipos para o Schema JSON (usando strings para compatibilidade garantida)
-const schema = {
-  type: "ARRAY",
-  items: {
-    type: "OBJECT",
-    properties: {
-      topic: { type: "STRING" },
-      title: { type: "STRING" },
-      summary: { type: "STRING" },
-      source: { type: "STRING" },
-    },
-    required: ["topic", "title", "summary", "source"],
-  },
-};
-
+// Formata a resposta de texto para objetos NewsArticle
 const parseNewsResponse = (text: string): NewsArticle[] => {
     const articles: NewsArticle[] = [];
-    // Regex robusto para tentar extrair caso a IA não retorne JSON puro no primeiro método
+    // Divide por blocos comuns de separação
     const items = text.split(/---|###|\n\n\*/);
     
     items.forEach((item, index) => {
@@ -31,13 +17,15 @@ const parseNewsResponse = (text: string): NewsArticle[] => {
 
       if (titleMatch) {
         const title = titleMatch[1].trim().replace(/\*\*/g, '');
-        const foundUrl = `https://www.google.com/search?q=${encodeURIComponent(title + " notícias")}`;
+        // Remove aspas se houver
+        const cleanTitle = title.replace(/^"|"$/g, ''); 
+        const foundUrl = `https://www.google.com/search?q=${encodeURIComponent(cleanTitle + " notícias")}`;
 
         articles.push({
           id: `news-${Date.now()}-${index}`,
           topic: topicMatch ? topicMatch[1].trim() : "Destaque",
-          title: title,
-          summary: summaryMatch ? summaryMatch[1].trim() : "Toque para ler a matéria completa.",
+          title: cleanTitle,
+          summary: summaryMatch ? summaryMatch[1].trim() : "Confira os detalhes no Google.",
           source: sourceMatch ? sourceMatch[1].trim() : "Google News",
           publishedAt: "Hoje",
           url: foundUrl
@@ -50,7 +38,6 @@ const parseNewsResponse = (text: string): NewsArticle[] => {
 export const fetchNewsWithAI = async (topics: string[], apiKeyOverride?: string): Promise<NewsArticle[]> => {
   const apiKey = apiKeyOverride || process.env.API_KEY || FALLBACK_API_KEY;
   
-  // Se não tiver chave, retorna vazio para não mostrar erro feio, apenas "Sem notícias"
   if (!apiKey || apiKey.includes("SUA_CHAVE")) {
       return [];
   }
@@ -58,76 +45,70 @@ export const fetchNewsWithAI = async (topics: string[], apiKeyOverride?: string)
   const ai = new GoogleGenAI({ apiKey });
   const topicsStr = topics.join(', ');
 
-  // --- ESTRATÉGIA 1: Google Search Grounding (Melhor qualidade, mas falha no Mobile se Key restrita) ---
+  const basePrompt = `
+    Atue como um jornalista de portal de notícias. 
+    Tópicos: ${topicsStr}.
+    
+    Para CADA tópico, forneça a notícia mais importante e RECENTE que você conhece.
+    
+    FORMATO OBRIGATÓRIO (use este template exato):
+    ---
+    TOPIC: [Nome do Tópico]
+    TITLE: [Manchete Clara e Específica]
+    SUMMARY: [Resumo em 1 frase curta]
+    SOURCE: [Fonte Original]
+    ---
+  `;
+
+  // --- TENTATIVA 1: Busca Real (Pode falhar no celular se a Key não permitir o domínio) ---
   try {
-    console.log("News: Tentando busca real...");
+    console.log("News: Tentando busca real (Search Tool)...");
     const response = await ai.models.generateContent({
       model: 'gemini-2.5-flash',
-      contents: `Atue como um agregador de notícias. Tópicos: ${topicsStr}. 
-      Use a ferramenta de busca para encontrar 4 manchetes de HOJE.
-      
-      FORMATO:
-      ---
-      TOPIC: [Tópico]
-      TITLE: [Título]
-      SUMMARY: [Resumo]
-      SOURCE: [Fonte]
-      ---`,
+      contents: basePrompt + " Use a ferramenta de busca para notícias de HOJE.",
       config: { tools: [{ googleSearch: {} }] }
     });
     
     const articles = parseNewsResponse(response.text || "");
     if (articles.length > 0) return articles;
-    throw new Error("Busca vazia ou bloqueada");
+    throw new Error("Busca retornou vazio");
 
   } catch (error: any) {
-    console.warn("News: Busca falhou. Ativando Fallback JSON...", error.message);
+    console.warn("News: Busca falhou (provável 403 Mobile). Tentando Geração Textual...", error.message);
     
-    // --- ESTRATÉGIA 2 (A CORREÇÃO): Geração JSON Estruturada ---
-    // Usamos o modo JSON da API. Isso ignora o bloqueio de Referer da ferramenta de busca
-    // e garante que o formato venha correto, evitando erros de parser.
+    // --- TENTATIVA 2: Geração Textual (Fallback Robusto) ---
+    // Removemos 'tools' e 'json' para garantir que funcione apenas com texto puro (menos restrições).
     try {
         const response = await ai.models.generateContent({
             model: 'gemini-2.5-flash',
-            contents: `Você é um feed de notícias de backup.
-            Tópicos: ${topicsStr}.
-            
-            Gere 4 notícias baseadas no seu conhecimento mais recente sobre estes tópicos.
-            Se não tiver dados de "hoje", gere notícias baseadas em eventos contínuos reais (ex: campeonatos em andamento, situações políticas atuais).
-            
-            IMPORTANTE:
-            1. NÃO invente nomes de pessoas que não existem.
-            2. NÃO diga "sou uma IA". Aja como um feed RSS.
-            3. Use fatos reais conhecidos.
+            contents: basePrompt + `
+              INSTRUÇÃO DE EMERGÊNCIA: A busca falhou.
+              Gere as notícias com base no seu conhecimento interno (Cut-off recente).
+              Seja ESPECÍFICO. Não invente, use fatos reais recentes.
+              Não responda "não tenho acesso".
             `,
-            config: {
-                responseMimeType: "application/json",
-                // @ts-ignore - A tipagem do SDK pode variar, mas o payload aceita schema
-                responseSchema: schema
-            }
         });
 
-        const jsonText = response.text || "[]";
-        const data = JSON.parse(jsonText);
+        const articles = parseNewsResponse(response.text || "");
+        if (articles.length > 0) return articles;
         
-        if (Array.isArray(data) && data.length > 0) {
-            return data.map((item: any, index: number) => ({
-                id: `fallback-${Date.now()}-${index}`,
-                topic: item.topic || "Geral",
-                title: item.title || "Notícia do dia",
-                summary: item.summary || "Confira os detalhes pesquisando no Google.",
-                source: item.source || "Feed",
-                publishedAt: "Recente",
-                url: `https://www.google.com/search?q=${encodeURIComponent((item.title || "") + " notícias")}`
-            }));
-        }
-        
-        throw new Error("JSON inválido");
+        throw new Error("IA gerou texto inválido");
 
     } catch (fallbackError: any) {
-        console.error("News: Falha crítica.", fallbackError);
-        // Retorna array vazio em vez de erro para a UI lidar graciosamente
-        return [];
+        console.error("News: Falha total.", fallbackError);
+        
+        // --- TENTATIVA 3: Feedback Visual de Erro (Último recurso) ---
+        // Se chegamos aqui, a chave está bloqueando TUDO ou esgotou a cota.
+        // Retornamos um card especial para o usuário saber o que fazer.
+        return [{
+            id: 'error-card',
+            topic: 'Erro de Configuração',
+            title: 'Notícias indisponíveis no momento',
+            summary: 'Sua API Key está bloqueando o acesso deste dispositivo. Adicione este domínio no Google Console.',
+            source: 'Sistema',
+            publishedAt: 'Agora',
+            url: 'https://console.cloud.google.com/apis/credentials'
+        }];
     }
   }
 };

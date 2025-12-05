@@ -130,8 +130,8 @@ const App: React.FC = () => {
   const [isSideMenuOpen, setIsSideMenuOpen] = useState(false);
   const [isConfigModalOpen, setIsConfigModalOpen] = useState(false);
 
-  // v26: Force refresh for news JSON fix
-  const [dashPrefs, setDashPrefs] = usePersistedState<DashboardPrefs>('dashboard_prefs_v26', {
+  // v27: Force refresh for news text fix
+  const [dashPrefs, setDashPrefs] = usePersistedState<DashboardPrefs>('dashboard_prefs_v27', {
       showSites: true,
       showTrello: true,
       showGoogle: true,
@@ -223,6 +223,9 @@ const App: React.FC = () => {
             }
             setLastNewsFetch(Date.now());
             setNewsError(null); // Clear error on success
+        } else {
+            // Se retornou vazio mesmo após os fallbacks do serviço
+            if (!append) setNewsError("Falha ao recuperar notícias.");
         }
     } catch (e: any) {
         console.error("Erro ao carregar notícias:", e);
@@ -904,7 +907,7 @@ const App: React.FC = () => {
       ) : null
     };
 
-    // Use default order if undefined, but use the new v26 default
+    // Use default order if undefined, but use the new v27 default
     const currentOrder = dashPrefs.dashboardOrder || ['insight', 'sites_list', 'shortcuts', 'news', 'weather', 'notifications'];
 
     return (

@@ -130,8 +130,8 @@ const App: React.FC = () => {
   const [isSideMenuOpen, setIsSideMenuOpen] = useState(false);
   const [isConfigModalOpen, setIsConfigModalOpen] = useState(false);
 
-  // v23: Force refresh for robust mobile news
-  const [dashPrefs, setDashPrefs] = usePersistedState<DashboardPrefs>('dashboard_prefs_v23', {
+  // v25: Force refresh for news fix
+  const [dashPrefs, setDashPrefs] = usePersistedState<DashboardPrefs>('dashboard_prefs_v25', {
       showSites: true,
       showTrello: true,
       showGoogle: true,
@@ -904,7 +904,7 @@ const App: React.FC = () => {
       ) : null
     };
 
-    // Use default order if undefined, but use the new v23 default
+    // Use default order if undefined, but use the new v25 default
     const currentOrder = dashPrefs.dashboardOrder || ['insight', 'sites_list', 'shortcuts', 'news', 'weather', 'notifications'];
 
     return (

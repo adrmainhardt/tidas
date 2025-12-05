@@ -96,11 +96,9 @@ const App: React.ReactElement = () => {
   const [loadingWeather, setLoadingWeather] = useState(false);
   const [weatherPermissionDenied, setWeatherPermissionDenied] = useState(false);
 
-  // Calendar State
-  const [calendarIds, setCalendarIds] = usePersistedState<string[]>('monitor_calendar_ids_v4', [
-      'teenfotos@gmail.com',
-      '1f8c739170fec62adf69574e232ec995685e6efc65e6fee560895d12f5f1afab@group.calendar.google.com',
-      'hgmvbnhlrf4ufbjbg74m1sn004n9i34u@import.calendar.google.com' // Feriados
+  // Calendar State - v5 limpa as agendas privadas que estavam dando erro
+  const [calendarIds, setCalendarIds] = usePersistedState<string[]>('monitor_calendar_ids_v5', [
+      'hgmvbnhlrf4ufbjbg74m1sn004n9i34u@import.calendar.google.com' // Agenda Jogos/Vasco
   ]);
   const [calendarEvents, setCalendarEvents] = useState<CalendarEvent[]>([]);
   const [isLoadingCalendar, setIsLoadingCalendar] = useState(false);
@@ -132,8 +130,8 @@ const App: React.ReactElement = () => {
   const [isSideMenuOpen, setIsSideMenuOpen] = useState(false);
   const [isConfigModalOpen, setIsConfigModalOpen] = useState(false);
 
-  // v19: Enforce requested order: Insight -> Sites List -> Shortcuts -> News -> Weather
-  const [dashPrefs, setDashPrefs] = usePersistedState<DashboardPrefs>('dashboard_prefs_v19', {
+  // v21: Force refresh
+  const [dashPrefs, setDashPrefs] = usePersistedState<DashboardPrefs>('dashboard_prefs_v21', {
       showSites: true,
       showTrello: true,
       showGoogle: true,
@@ -906,7 +904,7 @@ const App: React.ReactElement = () => {
       ) : null
     };
 
-    // Use default order if undefined, but use the new v19 default
+    // Use default order if undefined, but use the new v21 default
     const currentOrder = dashPrefs.dashboardOrder || ['insight', 'sites_list', 'shortcuts', 'news', 'weather', 'notifications'];
 
     return (

@@ -83,7 +83,7 @@ const playNotificationSound = () => {
 
 const TRELLO_COLORS = ['blue', 'amber', 'emerald', 'purple', 'rose', 'cyan', 'indigo', 'lime'];
 
-const App: React.ReactElement = () => {
+const App: React.FC = () => {
   const [currentView, setCurrentView] = useState<ViewState>(ViewState.DASHBOARD);
   const [sites, setSites] = useState<SiteConfig[]>(DEFAULT_SITES);
   const [forms, setForms] = useState<FormSubmission[]>(MOCK_FORMS);
@@ -96,7 +96,7 @@ const App: React.ReactElement = () => {
   const [loadingWeather, setLoadingWeather] = useState(false);
   const [weatherPermissionDenied, setWeatherPermissionDenied] = useState(false);
 
-  // Calendar State - v5 limpa as agendas privadas que estavam dando erro
+  // Calendar State
   const [calendarIds, setCalendarIds] = usePersistedState<string[]>('monitor_calendar_ids_v5', [
       'hgmvbnhlrf4ufbjbg74m1sn004n9i34u@import.calendar.google.com' // Agenda Jogos/Vasco
   ]);
@@ -130,8 +130,8 @@ const App: React.ReactElement = () => {
   const [isSideMenuOpen, setIsSideMenuOpen] = useState(false);
   const [isConfigModalOpen, setIsConfigModalOpen] = useState(false);
 
-  // v21: Force refresh
-  const [dashPrefs, setDashPrefs] = usePersistedState<DashboardPrefs>('dashboard_prefs_v21', {
+  // v22: Force refresh for mobile news fix
+  const [dashPrefs, setDashPrefs] = usePersistedState<DashboardPrefs>('dashboard_prefs_v22', {
       showSites: true,
       showTrello: true,
       showGoogle: true,
@@ -904,7 +904,7 @@ const App: React.ReactElement = () => {
       ) : null
     };
 
-    // Use default order if undefined, but use the new v21 default
+    // Use default order if undefined, but use the new v22 default
     const currentOrder = dashPrefs.dashboardOrder || ['insight', 'sites_list', 'shortcuts', 'news', 'weather', 'notifications'];
 
     return (

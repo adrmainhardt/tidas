@@ -130,8 +130,8 @@ const App: React.FC = () => {
   const [isSideMenuOpen, setIsSideMenuOpen] = useState(false);
   const [isConfigModalOpen, setIsConfigModalOpen] = useState(false);
 
-  // v27: Force refresh for news text fix
-  const [dashPrefs, setDashPrefs] = usePersistedState<DashboardPrefs>('dashboard_prefs_v27', {
+  // v31: Update
+  const [dashPrefs, setDashPrefs] = usePersistedState<DashboardPrefs>('dashboard_prefs_v31', {
       showSites: true,
       showTrello: true,
       showGoogle: true,
@@ -195,8 +195,8 @@ const App: React.FC = () => {
     }
     
     setIsLoadingNews(true);
-    // Don't clear old articles if we are appending or if it's a soft refresh
-    if (!append && force) setNewsError(null);
+    // Force clear error on new fetch attempt
+    if (force) setNewsError(null);
 
     try {
         const effectiveKey = (dashPrefs.googleApiKey && dashPrefs.googleApiKey.trim() !== '') 
@@ -222,9 +222,9 @@ const App: React.FC = () => {
                 setNewsArticles(newArticles);
             }
             setLastNewsFetch(Date.now());
-            setNewsError(null); // Clear error on success
+            setNewsError(null); 
         } else {
-            // Se retornou vazio mesmo após os fallbacks do serviço
+            // Should theoretically never happen with new fallback logic
             if (!append) setNewsError("Falha ao recuperar notícias.");
         }
     } catch (e: any) {
@@ -861,7 +861,7 @@ const App: React.FC = () => {
         <div key="shortcuts" className="grid grid-cols-2 gap-4">
           {dashPrefs.showSites && (
             <div onClick={() => handleNavigation(ViewState.WEBSITES, 'status')} className="bg-slate-800 p-4 rounded-2xl border border-slate-700 shadow-sm cursor-pointer active:scale-95 transition-all">
-              <div className="flex items-center gap-2 mb-2 text-brand-400"><Globe className="w-4 h-4" /><span className="text-xs font-semibold">SITES & FORMS</span></div>
+              <div className="flex items-center gap-2 mb-2 text-brand-400"><Globe className="w-4 h-4" /><span className="text-xs font-semibold">FORMULÁRIOS</span></div>
               <div className="flex justify-between items-end">
                 <div className="text-2xl font-bold text-slate-100">{forms.filter(f => !f.isRead).length}</div>
                 {sites.some(s => s.status === SiteStatus.OFFLINE) && <AlertTriangle className="w-5 h-5 text-rose-500 animate-pulse" />}
@@ -889,9 +889,18 @@ const App: React.FC = () => {
             <div onClick={() => handleNavigation(ViewState.CALENDAR)} className="bg-slate-800 p-4 rounded-2xl border border-slate-700 shadow-sm cursor-pointer active:scale-95 transition-all">
               <div className="flex items-center gap-2 mb-2 text-purple-400"><Calendar className="w-4 h-4" /><span className="text-xs font-semibold">AGENDA</span></div>
               <div className="text-2xl font-bold text-slate-100">
-                  {calendarEvents.filter(e => e.start >= new Date() && e.start.getDate() === new Date().getDate()).length}
+                  {calendarEvents.filter(e => {
+                      const now = new Date();
+                      // Zerar hora atual para incluir eventos de hoje que já começaram ou são dia inteiro
+                      now.setHours(0,0,0,0);
+                      
+                      const nextWeek = new Date(now);
+                      nextWeek.setDate(now.getDate() + 7);
+                      
+                      return e.start >= now && e.start <= nextWeek;
+                  }).length}
               </div>
-              <div className="text-[10px] text-slate-500 mt-1">Eventos hoje</div>
+              <div className="text-[10px] text-slate-500 mt-1">Próximos 7 dias</div>
             </div>
           )}
         </div>
@@ -907,7 +916,7 @@ const App: React.FC = () => {
       ) : null
     };
 
-    // Use default order if undefined, but use the new v27 default
+    // Use default order if undefined, but use the new v31 default
     const currentOrder = dashPrefs.dashboardOrder || ['insight', 'sites_list', 'shortcuts', 'news', 'weather', 'notifications'];
 
     return (
@@ -921,8 +930,6 @@ const App: React.FC = () => {
       const effectiveKey = (dashPrefs.googleApiKey && dashPrefs.googleApiKey.trim() !== '') ? dashPrefs.googleApiKey : FALLBACK_API_KEY;
       const maskedKey = effectiveKey ? `${effectiveKey.substring(0, 8)}...${effectiveKey.substring(effectiveKey.length - 4)}` : 'Nenhuma';
 
-      // Only show error if we have NO articles to show. If we have cached articles, show them + maybe a small toast?
-      // User requested to hide error if news are showing.
       const showErrorMessage = newsError && newsArticles.length === 0;
 
       return (
@@ -940,66 +947,20 @@ const App: React.FC = () => {
 
               <div className="space-y-4">
                   
-                  {/* Error State with Advanced Diagnostics */}
                   {showErrorMessage && (
                       <div className="bg-rose-500/10 border border-rose-500/30 p-4 rounded-xl mb-4">
                           <h3 className="text-rose-400 font-bold flex items-center gap-2"><AlertOctagon className="w-4 h-4"/> Acesso Negado (403)</h3>
-                          
                           <div className="mt-2 bg-rose-950/40 p-3 rounded-lg border border-rose-900 text-[10px] text-rose-200">
                              <p className="font-bold mb-2">Checklist de Solução:</p>
-                             
                              <ul className="space-y-2 list-disc pl-3">
-                                <li>
-                                   <strong>API Ativada?</strong>
-                                   <br/>
-                                   <a href="https://console.cloud.google.com/apis/library/generativelanguage.googleapis.com" target="_blank" className="underline text-rose-300 hover:text-white">Ativar "Gemini API" no Console</a>
-                                </li>
-                                
-                                <li>
-                                    <strong>Restrições de Site (Curinga *)</strong>
-                                    <br/>
-                                    Adicione AMBOS os links com asterisco:
-                                    <div className="flex flex-col gap-1 mt-1 mb-1">
-                                         <code className="bg-black/30 px-1 py-0.5 rounded text-rose-100 truncate">
-                                             {window.location.origin}/*
-                                         </code>
-                                         <code className="bg-black/30 px-1 py-0.5 rounded text-rose-100 truncate">
-                                             {window.location.origin.replace('https://', 'https://www.')}/*
-                                         </code>
-                                    </div>
-                                    <span className="opacity-70 italic">Sem o *, o Google bloqueia sub-páginas.</span>
-                                </li>
-
-                                <li>
-                                    <strong>Chave em Uso:</strong> {maskedKey}
-                                </li>
+                                <li><strong>API Ativada?</strong></li>
+                                <li><strong>Restrições de Site</strong></li>
+                                <li><strong>Chave em Uso:</strong> {maskedKey}</li>
                              </ul>
-                             
-                             {/* Detalhe Técnico do Erro */}
-                             <details className="mt-3 opacity-70">
-                                 <summary className="cursor-pointer font-bold">Ver erro técnico do Google</summary>
-                                 <pre className="mt-1 p-2 bg-black/50 rounded overflow-x-auto text-[9px] font-mono whitespace-pre-wrap">
-                                     {newsError}
-                                 </pre>
-                             </details>
                           </div>
-                          
                           <div className="flex gap-2 mt-3">
-                             <button 
-                                onClick={() => {
-                                    setDashPrefs(p => ({...p, googleApiKey: FALLBACK_API_KEY}));
-                                    setTimeout(() => loadNews(true), 100);
-                                }}
-                                className="flex-1 bg-slate-700 hover:bg-slate-600 text-slate-300 text-xs font-bold py-3 rounded-lg transition-colors"
-                              >
-                                Restaurar Chave Padrão
-                              </button>
-                              <button 
-                                onClick={() => loadNews(true)}
-                                className="flex-1 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold py-3 rounded-lg transition-colors flex items-center justify-center gap-1"
-                              >
-                                <RefreshCw className="w-3 h-3" /> Tentar Novamente
-                              </button>
+                             <button onClick={() => { setDashPrefs(p => ({...p, googleApiKey: FALLBACK_API_KEY})); setTimeout(() => loadNews(true), 100); }} className="flex-1 bg-slate-700 hover:bg-slate-600 text-slate-300 text-xs font-bold py-3 rounded-lg">Restaurar Chave</button>
+                             <button onClick={() => loadNews(true)} className="flex-1 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold py-3 rounded-lg flex justify-center gap-1"><RefreshCw className="w-3 h-3" /> Tentar Novamente</button>
                           </div>
                       </div>
                   )}
@@ -1015,7 +976,6 @@ const App: React.FC = () => {
                       <div className="bg-slate-800 p-6 rounded-xl border border-slate-700 text-center">
                           <Newspaper className="w-10 h-10 text-slate-600 mx-auto mb-3" />
                           <p className="text-slate-300 font-bold">Sem notícias recentes.</p>
-                          <p className="text-xs text-slate-500 mt-1">Verifique sua API Key ou adicione mais tópicos.</p>
                       </div>
                   )}
 
@@ -1023,23 +983,9 @@ const App: React.FC = () => {
                       <NewsCard key={article.id} article={article} />
                   ))}
 
-                  {/* Load More Button */}
                   {newsArticles.length > 0 && !newsError && (
-                      <button 
-                        onClick={() => loadNews(true, true)}
-                        disabled={isLoadingNews}
-                        className="w-full py-3 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 text-sm font-bold rounded-xl flex items-center justify-center gap-2 transition-colors disabled:opacity-50"
-                      >
-                         {isLoadingNews ? (
-                             <>
-                                <div className="w-4 h-4 border-2 border-slate-400 border-t-transparent rounded-full animate-spin"></div>
-                                Carregando mais...
-                             </>
-                         ) : (
-                             <>
-                                <PlusCircle className="w-4 h-4" /> Carregar Mais
-                             </>
-                         )}
+                      <button onClick={() => loadNews(true, true)} disabled={isLoadingNews} className="w-full py-3 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 text-sm font-bold rounded-xl flex items-center justify-center gap-2">
+                         {isLoadingNews ? <> <div className="w-4 h-4 border-2 border-slate-400 border-t-transparent rounded-full animate-spin"></div> Carregando... </> : <> <PlusCircle className="w-4 h-4" /> Carregar Mais </>}
                       </button>
                   )}
               </div>
@@ -1070,19 +1016,11 @@ const App: React.FC = () => {
                  </div>
                  
                  <div className="bg-slate-800 p-1 rounded-xl flex gap-1">
-                     <button 
-                        onClick={() => setWebsiteSubTab('status')} 
-                        className={`flex-1 py-2 rounded-lg text-xs font-bold flex justify-center items-center gap-2 transition-colors ${websiteSubTab === 'status' ? 'bg-slate-700 text-white shadow-sm' : 'text-slate-400 hover:text-slate-300'}`}
-                     >
-                        <Globe className="w-3.5 h-3.5" /> Status
-                        {offlineSites > 0 && <span className="bg-rose-500 text-white text-[9px] px-1.5 py-0.5 rounded-full animate-pulse">{offlineSites}</span>}
+                     <button onClick={() => setWebsiteSubTab('status')} className={`flex-1 py-2 rounded-lg text-xs font-bold flex justify-center items-center gap-2 transition-colors ${websiteSubTab === 'status' ? 'bg-slate-700 text-white shadow-sm' : 'text-slate-400 hover:text-slate-300'}`}>
+                        <Globe className="w-3.5 h-3.5" /> Status {offlineSites > 0 && <span className="bg-rose-500 text-white text-[9px] px-1.5 py-0.5 rounded-full animate-pulse">{offlineSites}</span>}
                      </button>
-                     <button 
-                        onClick={() => setWebsiteSubTab('forms')} 
-                        className={`flex-1 py-2 rounded-lg text-xs font-bold flex justify-center items-center gap-2 transition-colors ${websiteSubTab === 'forms' ? 'bg-slate-700 text-white shadow-sm' : 'text-slate-400 hover:text-slate-300'}`}
-                     >
-                        <MessageSquareText className="w-3.5 h-3.5" /> Formulários
-                        {unreadForms > 0 && <span className="bg-blue-500 text-white text-[9px] px-1.5 py-0.5 rounded-full">{unreadForms}</span>}
+                     <button onClick={() => setWebsiteSubTab('forms')} className={`flex-1 py-2 rounded-lg text-xs font-bold flex justify-center items-center gap-2 transition-colors ${websiteSubTab === 'forms' ? 'bg-slate-700 text-white shadow-sm' : 'text-slate-400 hover:text-slate-300'}`}>
+                        <MessageSquareText className="w-3.5 h-3.5" /> Formulários {unreadForms > 0 && <span className="bg-blue-500 text-white text-[9px] px-1.5 py-0.5 rounded-full">{unreadForms}</span>}
                      </button>
                  </div>
              </div>
@@ -1109,24 +1047,11 @@ const App: React.FC = () => {
         <LogIn className="w-10 h-10 text-blue-500" />
       </div>
       <h2 className="text-2xl font-bold text-slate-100 mb-2">Conectar Google</h2>
-      <p className="text-slate-400 mb-8 max-w-xs text-sm">
-        Faça login para acessar seu {serviceName}.
-      </p>
-
-      {apiNotEnabled && (
-        <div className="w-full bg-slate-800/80 border border-slate-700 p-4 rounded-lg mb-6 text-left">
-           <p className="text-xs text-slate-400 mb-2">API não ativada no Cloud Console.</p>
-           <div className="flex items-center gap-2 bg-black/30 p-2 rounded border border-slate-700/50">
-              <code className="text-[9px] text-slate-300 break-all font-mono">{window.location.origin}</code>
-              <button onClick={copyOrigin} className="p-1 hover:bg-white/10 rounded"><Copy className="w-3 h-3" /></button>
-           </div>
-        </div>
-      )}
-
+      <p className="text-slate-400 mb-8 max-w-xs text-sm">Faça login para acessar seu {serviceName}.</p>
+      {apiNotEnabled && <div className="w-full bg-slate-800/80 border border-slate-700 p-4 rounded-lg mb-6 text-left"><p className="text-xs text-slate-400 mb-2">API não ativada.</p></div>}
       <button onClick={handleConnectGoogle} disabled={!isGoogleReady} className="w-full bg-white text-slate-900 font-bold py-3.5 rounded-xl flex items-center justify-center gap-3 hover:bg-slate-100 disabled:opacity-50">
         {isGoogleReady ? <> <img src="https://www.google.com/favicon.ico" className="w-4 h-4"/> Entrar com Google </> : 'Carregando...'}
       </button>
-      <p className="text-[10px] text-slate-500 mt-4">O login expira em 1h por segurança.</p>
     </div>
   );
 
@@ -1146,7 +1071,6 @@ const App: React.FC = () => {
                     )}
                  </div>
              </div>
-
              {!googleToken ? renderGoogleLogin('Gmail') : (
                   <div>
                       {emails.length === 0 && !isLoadingGoogle && <div className="text-center py-10 text-slate-500"><Check className="w-8 h-8 text-emerald-500/50 mx-auto mb-2"/><p>Caixa limpa!</p></div>}
@@ -1160,13 +1084,11 @@ const App: React.FC = () => {
   const renderCalendarHub = () => {
     const groupedEvents: { [key: string]: CalendarEvent[] } = {};
     const todayStr = new Date().toLocaleDateString();
-
     calendarEvents.forEach(event => {
       const dateKey = event.start.toLocaleDateString();
       if (!groupedEvents[dateKey]) groupedEvents[dateKey] = [];
       groupedEvents[dateKey].push(event);
     });
-
     const hasEvents = calendarEvents.length > 0;
     const hasApiKey = (dashPrefs.googleApiKey && dashPrefs.googleApiKey.length > 10) || (FALLBACK_API_KEY && FALLBACK_API_KEY.length > 10);
 
@@ -1179,63 +1101,26 @@ const App: React.FC = () => {
              <button onClick={() => updateCalendar()} className={`p-2 bg-purple-500/20 text-purple-400 rounded-full ${isLoadingCalendar ? 'animate-spin' : ''}`}><RefreshCw className="w-4 h-4" /></button>
           </div>
         </div>
-
-        {/* Warning se não tiver eventos e faltar chave */}
         {!hasEvents && !isLoadingCalendar && !hasApiKey && !googleToken && (
-             <div className="bg-amber-900/20 border border-amber-500/30 p-4 rounded-xl mb-6 mx-1">
-                 <div className="flex items-start gap-3">
-                     <AlertTriangle className="w-5 h-5 text-amber-500 shrink-0 mt-0.5" />
-                     <div>
-                         <h3 className="text-sm font-bold text-amber-200 mb-1">Configuração Necessária</h3>
-                         <p className="text-xs text-amber-100/80 mb-2 leading-relaxed">
-                             Para ver agendas públicas (como Feriados) sem login, você precisa adicionar uma <strong>Google API Key</strong>.
-                         </p>
-                         <button onClick={() => setIsConfigModalOpen(true)} className="text-xs bg-amber-600 hover:bg-amber-500 text-white px-3 py-1.5 rounded font-bold">
-                             Adicionar Key
-                         </button>
-                     </div>
-                 </div>
-             </div>
+             <div className="bg-amber-900/20 border border-amber-500/30 p-4 rounded-xl mb-6 mx-1"><div className="flex items-start gap-3"><AlertTriangle className="w-5 h-5 text-amber-500 shrink-0 mt-0.5" /><div><h3 className="text-sm font-bold text-amber-200 mb-1">Configuração Necessária</h3><button onClick={() => setIsConfigModalOpen(true)} className="text-xs bg-amber-600 hover:bg-amber-500 text-white px-3 py-1.5 rounded font-bold">Adicionar Key</button></div></div></div>
         )}
-
-        {/* Mensagem de ajuda caso não apareça nada, mesmo com API Key */}
         {!hasEvents && !isLoadingCalendar && (hasApiKey || googleToken) && (
-             <div className="bg-slate-800 border border-slate-700 p-4 rounded-xl mb-6 mx-1 text-center">
-                 <Calendar className="w-8 h-8 mx-auto mb-2 text-slate-500" />
-                 <p className="text-sm font-bold text-slate-300">Nenhum evento encontrado</p>
-                 <p className="text-xs text-slate-400 mt-1 leading-relaxed max-w-xs mx-auto">
-                    Se você adicionou agendas (ex: Gmail pessoal), elas precisam ser <strong>Públicas</strong> ou você deve fazer <strong>Login com Google</strong> na aba E-mail.
-                 </p>
-                 {!googleToken && (
-                     <button onClick={() => handleNavigation(ViewState.GOOGLE)} className="mt-3 text-xs bg-blue-600/20 text-blue-300 px-3 py-1.5 rounded-full font-bold border border-blue-600/30">
-                        Ir para Login
-                     </button>
-                 )}
-             </div>
+             <div className="bg-slate-800 border border-slate-700 p-4 rounded-xl mb-6 mx-1 text-center"><Calendar className="w-8 h-8 mx-auto mb-2 text-slate-500" /><p className="text-sm font-bold text-slate-300">Nenhum evento encontrado</p></div>
         )}
-
         <div className="space-y-6">
            {Object.keys(groupedEvents).map(dateKey => {
              const firstEvent = groupedEvents[dateKey][0];
              const dateObj = firstEvent.start;
-             
              const weekday = dateObj.toLocaleDateString('pt-BR', { weekday: 'long' });
              const formattedDate = dateObj.toLocaleDateString('pt-BR');
              const displayDate = `${weekday.charAt(0).toUpperCase() + weekday.slice(1)}, ${formattedDate}`;
-
              const isToday = dateKey === todayStr;
              return (
                <div key={dateKey} className={`rounded-xl ${isToday ? 'bg-blue-900/10 border border-blue-500/30 p-2 -mx-2' : ''}`}>
-                  <h3 className={`text-xs font-bold uppercase tracking-wider mb-2 sticky top-0 py-2 backdrop-blur-sm z-10 flex items-center gap-2
-                      ${isToday ? 'text-blue-300' : 'text-slate-500 bg-brand-900/90'}`}>
-                    {displayDate}
-                    {isToday && <span className="bg-blue-500 text-white text-[9px] px-1.5 py-0.5 rounded-full flex items-center gap-1"><Star className="w-2.5 h-2.5 fill-current"/> HOJE</span>}
+                  <h3 className={`text-xs font-bold uppercase tracking-wider mb-2 sticky top-0 py-2 backdrop-blur-sm z-10 flex items-center gap-2 ${isToday ? 'text-blue-300' : 'text-slate-500 bg-brand-900/90'}`}>
+                    {displayDate} {isToday && <span className="bg-blue-500 text-white text-[9px] px-1.5 py-0.5 rounded-full flex items-center gap-1"><Star className="w-2.5 h-2.5 fill-current"/> HOJE</span>}
                   </h3>
-                  <div className="space-y-3">
-                    {groupedEvents[dateKey].map(event => (
-                      <CalendarEventItem key={event.id + event.start.getTime()} event={event} />
-                    ))}
-                  </div>
+                  <div className="space-y-3">{groupedEvents[dateKey].map(event => <CalendarEventItem key={event.id + event.start.getTime()} event={event} />)}</div>
                </div>
              );
            })}
@@ -1249,17 +1134,9 @@ const App: React.FC = () => {
       
       <header className="fixed top-0 w-full z-40 bg-slate-900/90 backdrop-blur-md border-b border-slate-800 pt-safe-area shadow-sm">
          <div className="flex justify-between items-center px-4 h-16 max-w-md mx-auto">
-             <button onClick={() => setIsSideMenuOpen(true)} className="p-2 -ml-2 text-slate-400 hover:text-white rounded-full hover:bg-slate-800 transition-colors">
-                <Menu className="w-6 h-6" />
-             </button>
-
-             <div className="flex items-center justify-center cursor-pointer" onClick={() => setCurrentView(ViewState.DASHBOARD)}>
-                 <img src="https://tidas.com.br/wp-content/uploads/2025/08/logo_tidas_rodan2.svg" alt="Tidas" className="h-[1.6rem] w-auto drop-shadow-md" />
-             </div>
-
-             <button onClick={() => setIsConfigModalOpen(true)} className="p-2 -mr-2 text-slate-400 hover:text-white rounded-full hover:bg-slate-800 transition-colors">
-                <Settings className="w-6 h-6" />
-             </button>
+             <button onClick={() => setIsSideMenuOpen(true)} className="p-2 -ml-2 text-slate-400 hover:text-white rounded-full hover:bg-slate-800 transition-colors"><Menu className="w-6 h-6" /></button>
+             <div className="flex items-center justify-center cursor-pointer" onClick={() => setCurrentView(ViewState.DASHBOARD)}><img src="https://tidas.com.br/wp-content/uploads/2025/08/logo_tidas_rodan2.svg" alt="Tidas" className="h-[1.6rem] w-auto drop-shadow-md" /></div>
+             <button onClick={() => setIsConfigModalOpen(true)} className="p-2 -mr-2 text-slate-400 hover:text-white rounded-full hover:bg-slate-800 transition-colors"><Settings className="w-6 h-6" /></button>
          </div>
       </header>
 

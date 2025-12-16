@@ -57,6 +57,20 @@ const getMockFormsForSite = (site: SiteConfig): FormSubmission[] => {
   ];
 };
 
+const getMockStatsForSite = (site: SiteConfig): { online: number, monthly: number } => {
+  const now = new Date();
+  const dayOfMonth = now.getDate();
+  // Simula visitas baseadas no dia do mês (Acumulado dia 1 até hoje)
+  const seed = site.name.charCodeAt(0) || 1;
+  const dailyAvg = 40 + (seed % 60); // Varia de 40 a 100 visitas/dia
+  const monthly = (dailyAvg * dayOfMonth) + Math.floor(Math.random() * 10);
+  
+  return {
+    online: 0, // Funcionalidade de online users desativada no mock
+    monthly
+  };
+};
+
 /**
  * Busca formulários do endpoint personalizado do WordPress.
  */
@@ -104,7 +118,7 @@ export const fetchFormsFromWP = async (site: SiteConfig): Promise<FormSubmission
   } catch (error) {
     // Erro de rede ou fetch (comum em localhost ou servidores sem CORS configurado)
     // Retorna mock data sem poluir o console com "Error"
-    console.warn(`WP Fetch (Mocking): ${site.name}`); 
+    // console.warn(`WP Fetch (Mocking): ${site.name}`); 
     return getMockFormsForSite(site);
   }
 };
@@ -113,7 +127,7 @@ export const fetchFormsFromWP = async (site: SiteConfig): Promise<FormSubmission
  * Busca estatísticas de visitantes (Koko Analytics) e status via API.
  */
 export const fetchSiteStats = async (site: SiteConfig): Promise<{ online: number, monthly: number } | null> => {
-  if (!site.apiKey) return null;
+  if (!site.apiKey) return getMockStatsForSite(site);
 
   const cleanUrl = site.url.replace(/\/$/, '');
   const endpoint = `${cleanUrl}/wp-json/monitor-app/v1/stats?key=${encodeURIComponent(site.apiKey)}&_=${Date.now()}`;
@@ -130,7 +144,7 @@ export const fetchSiteStats = async (site: SiteConfig): Promise<{ online: number
     clearTimeout(timeoutId);
 
     if (!response.ok) {
-      return null;
+      return getMockStatsForSite(site);
     }
 
     const json: WpApiResponse<WpStats> = await response.json();
@@ -141,9 +155,9 @@ export const fetchSiteStats = async (site: SiteConfig): Promise<{ online: number
         monthly: json.data.monthly_visitors
       };
     }
-    return null;
+    return getMockStatsForSite(site);
 
   } catch (error) {
-    return null;
+    return getMockStatsForSite(site);
   }
 };

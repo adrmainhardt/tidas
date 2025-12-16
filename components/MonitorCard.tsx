@@ -1,7 +1,7 @@
 
 import React from 'react';
 import { SiteConfig, SiteStatus } from '../types';
-import { Globe, CheckCircle2, XCircle, AlertCircle, Clock, Zap, BarChart3, Users } from 'lucide-react';
+import { Globe, CheckCircle2, XCircle, AlertCircle, Clock, Zap, BarChart3 } from 'lucide-react';
 
 interface MonitorCardProps {
   site: SiteConfig;
@@ -44,19 +44,19 @@ const MonitorCard: React.FC<MonitorCardProps> = ({ site, onRefresh, minimal = fa
           <div>
             <h3 className="font-semibold text-slate-100 leading-tight">{site.name}</h3>
             
-            {/* Modo Minimal: Métricas na mesma linha, sem URL */}
+            {/* Modo Minimal: Métricas na mesma linha */}
             {minimal ? (
                <div className="flex items-center gap-2 text-[11px] text-slate-400 mt-1">
                    {site.status === SiteStatus.ONLINE && (
                      <>
-                        <span className="flex items-center gap-1">
-                            <Users className="w-3 h-3 opacity-70" /> 
-                            {site.onlineUsers || 0}
-                        </span>
-                        <span className="opacity-30">|</span>
                         <span className={`flex items-center gap-1 ${getResponseTimeColor(site.responseTime || 0)}`}>
                             <Zap className="w-3 h-3" /> 
                             {site.responseTime}ms
+                        </span>
+                        <span className="opacity-30">|</span>
+                        <span className="flex items-center gap-1 text-slate-300">
+                            <BarChart3 className="w-3 h-3 opacity-70" /> 
+                            {site.monthlyVisitors !== undefined ? site.monthlyVisitors.toLocaleString('pt-BR') : '0'}
                         </span>
                      </>
                    )}
@@ -93,7 +93,7 @@ const MonitorCard: React.FC<MonitorCardProps> = ({ site, onRefresh, minimal = fa
         </div>
       </div>
 
-      {/* Modo Completo: Estatísticas Extras */}
+      {/* Modo Completo: Estatísticas Extras - Apenas Visitantes Mês */}
       {!minimal && site.status === SiteStatus.ONLINE && (
         <div className="flex items-center gap-4 py-2 px-3 bg-slate-900/50 rounded-lg border border-slate-700/50">
             <div className="flex items-center gap-2 text-slate-300">
@@ -101,7 +101,7 @@ const MonitorCard: React.FC<MonitorCardProps> = ({ site, onRefresh, minimal = fa
                 <span className="text-xs font-medium">Visitantes (Mês):</span>
             </div>
             <span className="text-sm font-bold text-slate-100 ml-auto">
-                {site.monthlyVisitors !== undefined ? site.monthlyVisitors.toLocaleString('pt-BR') : '-'}
+                {site.monthlyVisitors !== undefined ? site.monthlyVisitors.toLocaleString('pt-BR') : '0'}
             </span>
         </div>
       )}

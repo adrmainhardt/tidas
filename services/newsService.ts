@@ -3,10 +3,21 @@ import { GoogleGenAI } from "@google/genai";
 import { NewsArticle } from "../types";
 import { FALLBACK_API_KEY } from "../constants";
 
-// Formata a resposta de texto para objetos NewsArticle
+// Gera cartões de link direto caso a IA falhe totalmente
+const generateOfflineCards = (topics: string[]): NewsArticle[] => {
+    return topics.map((t, i) => ({
+        id: `offline-${Date.now()}-${i}`,
+        topic: t,
+        title: `Últimas notícias sobre ${t}`,
+        summary: 'Não foi possível carregar o resumo automático. Toque para ver os resultados atualizados no Google.',
+        source: 'Google Search',
+        publishedAt: 'Agora',
+        url: `https://www.google.com/search?q=${encodeURIComponent(t + " notícias")}`
+    }));
+};
+
 const parseNewsResponse = (text: string): NewsArticle[] => {
     const articles: NewsArticle[] = [];
-    // Divide por blocos comuns de separação
     const items = text.split(/---|###|\n\n\*/);
     
     items.forEach((item, index) => {
@@ -16,15 +27,13 @@ const parseNewsResponse = (text: string): NewsArticle[] => {
       const sourceMatch = item.match(/(?:SOURCE|FONTE):\s*(.+)/i);
 
       if (titleMatch) {
-        const title = titleMatch[1].trim().replace(/\*\*/g, '');
-        // Remove aspas se houver
-        const cleanTitle = title.replace(/^"|"$/g, ''); 
-        const foundUrl = `https://www.google.com/search?q=${encodeURIComponent(cleanTitle + " notícias")}`;
+        const title = titleMatch[1].trim().replace(/^"|"$/g, '').replace(/\*\*/g, ''); 
+        const foundUrl = `https://www.google.com/search?q=${encodeURIComponent(title + " notícias")}`;
 
         articles.push({
           id: `news-${Date.now()}-${index}`,
           topic: topicMatch ? topicMatch[1].trim() : "Destaque",
-          title: cleanTitle,
+          title: title,
           summary: summaryMatch ? summaryMatch[1].trim() : "Confira os detalhes no Google.",
           source: sourceMatch ? sourceMatch[1].trim() : "Google News",
           publishedAt: "Hoje",
@@ -35,80 +44,85 @@ const parseNewsResponse = (text: string): NewsArticle[] => {
     return articles;
 };
 
+const getEffectiveApiKey = (override?: string): string | null => {
+    if (override && override.trim().length > 10) return override;
+    
+    // Verifica process.env com cuidado
+    const envKey = process.env.API_KEY;
+    if (envKey && envKey.trim().length > 10 && !envKey.includes("SUA_CHAVE")) {
+        return envKey;
+    }
+    
+    // Fallback final
+    if (FALLBACK_API_KEY && FALLBACK_API_KEY.trim().length > 10) {
+        return FALLBACK_API_KEY;
+    }
+    
+    return null;
+};
+
 export const fetchNewsWithAI = async (topics: string[], apiKeyOverride?: string): Promise<NewsArticle[]> => {
-  const apiKey = apiKeyOverride || process.env.API_KEY || FALLBACK_API_KEY;
+  const apiKey = getEffectiveApiKey(apiKeyOverride);
   
-  if (!apiKey || apiKey.includes("SUA_CHAVE")) {
-      return [];
+  // Se não tiver chave válida, retorna links diretos em vez de vazio
+  if (!apiKey) {
+      console.warn("News: Sem API Key válida. Retornando fallback.");
+      return generateOfflineCards(topics);
   }
 
   const ai = new GoogleGenAI({ apiKey });
   const topicsStr = topics.join(', ');
 
   const basePrompt = `
-    Atue como um jornalista de portal de notícias. 
+    Atue como um agregador de notícias RSS.
     Tópicos: ${topicsStr}.
     
-    Para CADA tópico, forneça a notícia mais importante e RECENTE que você conhece.
+    Liste 1 notícia RECENTE e REAL para cada tópico.
+    Se não houver fato hoje, cite o último relevante.
     
-    FORMATO OBRIGATÓRIO (use este template exato):
+    FORMATO (Estrito):
     ---
-    TOPIC: [Nome do Tópico]
-    TITLE: [Manchete Clara e Específica]
-    SUMMARY: [Resumo em 1 frase curta]
-    SOURCE: [Fonte Original]
+    TOPIC: [Tópico]
+    TITLE: [Manchete]
+    SUMMARY: [Resumo curto]
+    SOURCE: [Fonte]
     ---
   `;
 
-  // --- TENTATIVA 1: Busca Real (Pode falhar no celular se a Key não permitir o domínio) ---
+  // --- TENTATIVA 1: Busca Real (Search Tool) ---
   try {
-    console.log("News: Tentando busca real (Search Tool)...");
+    console.log("News: Tentando busca...");
     const response = await ai.models.generateContent({
       model: 'gemini-2.5-flash',
-      contents: basePrompt + " Use a ferramenta de busca para notícias de HOJE.",
+      contents: basePrompt + " Use o Google Search para fatos de HOJE.",
       config: { tools: [{ googleSearch: {} }] }
     });
     
     const articles = parseNewsResponse(response.text || "");
     if (articles.length > 0) return articles;
-    throw new Error("Busca retornou vazio");
+    throw new Error("Busca vazia");
 
   } catch (error: any) {
-    console.warn("News: Busca falhou (provável 403 Mobile). Tentando Geração Textual...", error.message);
+    console.warn("News: Busca falhou. Tentando modo texto...", error.message);
     
-    // --- TENTATIVA 2: Geração Textual (Fallback Robusto) ---
-    // Removemos 'tools' e 'json' para garantir que funcione apenas com texto puro (menos restrições).
+    // --- TENTATIVA 2: Geração Textual (Sem Tools) ---
+    // Isso evita erro 403 de origem/referer no celular
     try {
         const response = await ai.models.generateContent({
             model: 'gemini-2.5-flash',
-            contents: basePrompt + `
-              INSTRUÇÃO DE EMERGÊNCIA: A busca falhou.
-              Gere as notícias com base no seu conhecimento interno (Cut-off recente).
-              Seja ESPECÍFICO. Não invente, use fatos reais recentes.
-              Não responda "não tenho acesso".
-            `,
+            contents: basePrompt + " (Use seu conhecimento interno. Não use tools.)",
         });
 
         const articles = parseNewsResponse(response.text || "");
         if (articles.length > 0) return articles;
         
-        throw new Error("IA gerou texto inválido");
+        throw new Error("Texto inválido");
 
     } catch (fallbackError: any) {
-        console.error("News: Falha total.", fallbackError);
-        
-        // --- TENTATIVA 3: Feedback Visual de Erro (Último recurso) ---
-        // Se chegamos aqui, a chave está bloqueando TUDO ou esgotou a cota.
-        // Retornamos um card especial para o usuário saber o que fazer.
-        return [{
-            id: 'error-card',
-            topic: 'Erro de Configuração',
-            title: 'Notícias indisponíveis no momento',
-            summary: 'Sua API Key está bloqueando o acesso deste dispositivo. Adicione este domínio no Google Console.',
-            source: 'Sistema',
-            publishedAt: 'Agora',
-            url: 'https://console.cloud.google.com/apis/credentials'
-        }];
+        console.error("News: Falha crítica. Gerando links offline.", fallbackError);
+        // --- TENTATIVA 3: Fallback Garantido ---
+        // Nunca retorna vazio ou erro, retorna links úteis
+        return generateOfflineCards(topics);
     }
   }
 };

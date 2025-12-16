@@ -130,8 +130,8 @@ const App: React.FC = () => {
   const [isSideMenuOpen, setIsSideMenuOpen] = useState(false);
   const [isConfigModalOpen, setIsConfigModalOpen] = useState(false);
 
-  // v31: Update
-  const [dashPrefs, setDashPrefs] = usePersistedState<DashboardPrefs>('dashboard_prefs_v31', {
+  // v33: Update
+  const [dashPrefs, setDashPrefs] = usePersistedState<DashboardPrefs>('dashboard_prefs_v33', {
       showSites: true,
       showTrello: true,
       showGoogle: true,
@@ -916,7 +916,7 @@ const App: React.FC = () => {
       ) : null
     };
 
-    // Use default order if undefined, but use the new v31 default
+    // Use default order if undefined, but use the new v33 default
     const currentOrder = dashPrefs.dashboardOrder || ['insight', 'sites_list', 'shortcuts', 'news', 'weather', 'notifications'];
 
     return (
@@ -937,7 +937,7 @@ const App: React.FC = () => {
               <div className="flex justify-between items-center mb-4 px-1">
                   <div className="flex items-center gap-2">
                        <h2 className="text-xl font-bold text-slate-100">Notícias</h2>
-                       <span className="text-[10px] bg-cyan-900 text-cyan-200 px-2 py-0.5 rounded-full border border-cyan-800">Discover</span>
+                       <span className="text-[10px] bg-cyan-900 text-cyan-200 px-2 py-0.5 rounded-full border border-cyan-800">RSS Feed</span>
                   </div>
                   <div className="flex gap-2">
                        <button onClick={() => setIsConfigModalOpen(true)} className="p-2 text-slate-500 hover:text-slate-300"><Settings className="w-5 h-5" /></button>
@@ -949,17 +949,15 @@ const App: React.FC = () => {
                   
                   {showErrorMessage && (
                       <div className="bg-rose-500/10 border border-rose-500/30 p-4 rounded-xl mb-4">
-                          <h3 className="text-rose-400 font-bold flex items-center gap-2"><AlertOctagon className="w-4 h-4"/> Acesso Negado (403)</h3>
+                          <h3 className="text-rose-400 font-bold flex items-center gap-2"><AlertOctagon className="w-4 h-4"/> Falha no Feed</h3>
                           <div className="mt-2 bg-rose-950/40 p-3 rounded-lg border border-rose-900 text-[10px] text-rose-200">
-                             <p className="font-bold mb-2">Checklist de Solução:</p>
+                             <p className="font-bold mb-2">Detalhes:</p>
                              <ul className="space-y-2 list-disc pl-3">
-                                <li><strong>API Ativada?</strong></li>
-                                <li><strong>Restrições de Site</strong></li>
-                                <li><strong>Chave em Uso:</strong> {maskedKey}</li>
+                                <li><strong>Causa:</strong> Erro ao conectar ao Google News ou Proxy.</li>
+                                <li><strong>Status:</strong> {newsError}</li>
                              </ul>
                           </div>
                           <div className="flex gap-2 mt-3">
-                             <button onClick={() => { setDashPrefs(p => ({...p, googleApiKey: FALLBACK_API_KEY})); setTimeout(() => loadNews(true), 100); }} className="flex-1 bg-slate-700 hover:bg-slate-600 text-slate-300 text-xs font-bold py-3 rounded-lg">Restaurar Chave</button>
                              <button onClick={() => loadNews(true)} className="flex-1 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold py-3 rounded-lg flex justify-center gap-1"><RefreshCw className="w-3 h-3" /> Tentar Novamente</button>
                           </div>
                       </div>
@@ -968,7 +966,7 @@ const App: React.FC = () => {
                   {isLoadingNews && newsArticles.length === 0 && (
                       <div className="flex flex-col items-center py-10">
                           <div className="w-8 h-8 border-2 border-cyan-500 border-t-transparent rounded-full animate-spin mb-3"></div>
-                          <p className="text-sm text-slate-500">Buscando atualizações com IA...</p>
+                          <p className="text-sm text-slate-500">Buscando notícias...</p>
                       </div>
                   )}
 

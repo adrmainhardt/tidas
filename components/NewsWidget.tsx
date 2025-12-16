@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from 'react';
+
+import React, { useState, useEffect, useRef } from 'react';
 import { NewsArticle } from '../types';
 import { Newspaper, ChevronRight } from 'lucide-react';
 
@@ -9,15 +10,71 @@ interface NewsWidgetProps {
 }
 
 const NewsWidget: React.FC<NewsWidgetProps> = ({ articles, isLoading, onNavigate }) => {
+  // Regra: Mostrar apenas as 5 mais relevantes no Widget principal
+  const displayArticles = articles.slice(0, 5);
+
   const [currentIndex, setCurrentIndex] = useState(0);
+  const touchStartX = useRef<number | null>(null);
+  const touchEndX = useRef<number | null>(null);
+  const intervalRef = useRef<any>(null);
+
+  const ROTATION_TIME = 15000;
+
+  const resetTimer = () => {
+    if (intervalRef.current) clearInterval(intervalRef.current);
+    if (displayArticles.length === 0) return;
+    
+    intervalRef.current = setInterval(() => {
+      setCurrentIndex((prev) => (prev + 1) % displayArticles.length);
+    }, ROTATION_TIME);
+  };
 
   useEffect(() => {
-    if (articles.length <= 1) return;
-    const interval = setInterval(() => {
-      setCurrentIndex((prev) => (prev + 1) % articles.length);
-    }, 8000); // Rotação a cada 8 segundos
-    return () => clearInterval(interval);
-  }, [articles.length]);
+    if (displayArticles.length <= 1) return;
+    resetTimer();
+    return () => {
+        if (intervalRef.current) clearInterval(intervalRef.current);
+    };
+  }, [displayArticles.length]);
+
+  // Swipe Logic
+  const handleTouchStart = (e: React.TouchEvent) => {
+    touchStartX.current = e.targetTouches[0].clientX;
+    if (intervalRef.current) clearInterval(intervalRef.current);
+  };
+
+  const handleTouchMove = (e: React.TouchEvent) => {
+    touchEndX.current = e.targetTouches[0].clientX;
+  };
+
+  const handleTouchEnd = () => {
+    if (!touchStartX.current || !touchEndX.current) {
+        resetTimer();
+        return;
+    }
+
+    const distance = touchStartX.current - touchEndX.current;
+    const isSwipeLeft = distance > 50;
+    const isSwipeRight = distance < -50;
+
+    if (isSwipeLeft) {
+        handleNext();
+    } else if (isSwipeRight) {
+        handlePrev();
+    }
+
+    touchStartX.current = null;
+    touchEndX.current = null;
+    resetTimer();
+  };
+
+  const handleNext = () => {
+      setCurrentIndex((prev) => (prev + 1) % displayArticles.length);
+  };
+
+  const handlePrev = () => {
+      setCurrentIndex((prev) => (prev - 1 + displayArticles.length) % displayArticles.length);
+  };
 
   // Loading State
   if (isLoading && articles.length === 0) {
@@ -33,38 +90,44 @@ const NewsWidget: React.FC<NewsWidgetProps> = ({ articles, isLoading, onNavigate
     );
   }
 
-  // Empty State (só retorna null se não estiver carregando, para não piscar)
-  if (articles.length === 0) return null;
+  // Empty State
+  if (displayArticles.length === 0) return null;
 
-  const article = articles[currentIndex];
+  const article = displayArticles[currentIndex];
 
   return (
-    <div className="bg-slate-800 rounded-2xl border border-slate-700 mb-4 overflow-hidden relative shadow-lg">
+    <div 
+        className="bg-slate-800 rounded-2xl border border-slate-700 mb-4 overflow-hidden relative shadow-lg touch-pan-y"
+        onTouchStart={handleTouchStart}
+        onTouchMove={handleTouchMove}
+        onTouchEnd={handleTouchEnd}
+    >
       <div className="p-4 relative z-10">
         <div className="flex justify-between items-center mb-3">
             <div className="flex items-center gap-2">
                 <div className="p-1.5 bg-cyan-500/20 rounded-lg">
                     <Newspaper className="w-3.5 h-3.5 text-cyan-400" />
                 </div>
-                <span className="text-xs font-bold text-slate-300 uppercase tracking-wider">Destaques</span>
+                {/* Texto simplificado sem contador */}
+                <span className="text-xs font-bold text-slate-300 uppercase tracking-wider">Principais Notícias</span>
             </div>
             <button onClick={onNavigate} className="text-[10px] text-cyan-400 font-bold flex items-center hover:text-cyan-300 bg-cyan-950/30 px-2 py-1 rounded border border-cyan-500/20">
                 Ver Tudo <ChevronRight className="w-3 h-3 ml-0.5" />
             </button>
         </div>
 
-        <div className="animate-fade-in key={currentIndex}"> {/* key forces remount animation */}
+        <div key={`${currentIndex}-${article.id}`} className="animate-fade-in min-h-[90px]"> 
             <div className="flex items-center gap-2 mb-1.5">
-                <span className="text-[9px] bg-slate-700 text-slate-300 px-1.5 py-0.5 rounded border border-slate-600 uppercase font-bold tracking-wide">
+                <span className="text-[9px] bg-slate-700 text-slate-300 px-1.5 py-0.5 rounded border border-slate-600 uppercase font-bold tracking-wide truncate max-w-[150px]">
                     {article.topic}
                 </span>
-                <span className="text-[9px] text-slate-500 font-medium flex items-center gap-1">
+                <span className="text-[9px] text-slate-500 font-medium flex items-center gap-1 truncate">
                     via {article.source}
                 </span>
             </div>
             
             <a href={article.url} target="_blank" rel="noopener noreferrer" className="block group">
-                <h3 className="text-sm font-bold text-slate-100 leading-snug line-clamp-2 group-active:text-cyan-400 transition-colors">
+                <h3 className="text-sm font-bold text-slate-100 leading-snug line-clamp-3 group-active:text-cyan-400 transition-colors">
                     {article.title}
                 </h3>
             </a>
@@ -73,18 +136,18 @@ const NewsWidget: React.FC<NewsWidgetProps> = ({ articles, isLoading, onNavigate
                 {article.summary}
             </p>
         </div>
-        
-        {/* Progress Bar animation */}
-        <div className="absolute bottom-0 left-0 h-0.5 bg-cyan-500/50 w-full">
+      </div>
+
+      {/* Barra de progresso discreta no fundo para indicar rotação automática */}
+      <div className="absolute bottom-0 left-0 h-0.5 bg-slate-700 w-full">
              <div 
-                key={currentIndex} // Restart animation on index change
-                className="h-full bg-cyan-400" 
+                key={currentIndex} 
+                className="h-full bg-cyan-500/50" 
                 style={{ 
                     width: '100%', 
-                    animation: 'shrink 8s linear forwards' 
+                    animation: `shrink ${ROTATION_TIME}ms linear forwards` 
                 }} 
              />
-        </div>
       </div>
       <style>{`
         @keyframes shrink {

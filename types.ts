@@ -113,6 +113,7 @@ export interface NewsArticle {
   summary: string;
   source: string;
   publishedAt?: string;
+  timestamp: number; // Novo campo para ordenação
   url?: string; // URL extraída do grounding ou busca
 }
 

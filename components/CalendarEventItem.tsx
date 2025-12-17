@@ -1,7 +1,7 @@
 
 import React from 'react';
 import { CalendarEvent } from '../types';
-import { MapPin, Clock, ExternalLink, Calendar as CalendarIcon } from 'lucide-react';
+import { MapPin, Clock, ExternalLink, Calendar as CalendarIcon, Zap } from 'lucide-react';
 
 interface CalendarEventItemProps {
   event: CalendarEvent;
@@ -21,18 +21,28 @@ const CalendarEventItem: React.FC<CalendarEventItemProps> = ({ event }) => {
   // Se está acontecendo agora (entre start e end)
   const isHappeningNow = now >= event.start && now <= event.end;
 
+  // Verifica se é "Esta Semana" (próximos 7 dias)
+  const oneWeekFromNow = new Date();
+  oneWeekFromNow.setDate(now.getDate() + 7);
+  const isThisWeek = event.start > now && event.start < oneWeekFromNow;
+
   let containerClasses = 'bg-slate-800 border-slate-700';
   let titleClasses = 'text-slate-200';
   let textClasses = 'text-slate-400';
 
   if (isHappeningNow) {
-    containerClasses = 'bg-blue-900/30 border-blue-500/50 shadow-[0_0_15px_rgba(59,130,246,0.15)] relative overflow-hidden';
-    titleClasses = 'text-blue-200';
-    textClasses = 'text-blue-300';
+    containerClasses = 'bg-emerald-900/30 border-emerald-500/50 shadow-[0_0_15px_rgba(16,185,129,0.15)] relative overflow-hidden';
+    titleClasses = 'text-emerald-200';
+    textClasses = 'text-emerald-300';
   } else if (isToday) {
     containerClasses = 'bg-slate-800 border-slate-600';
     titleClasses = 'text-white font-bold';
     textClasses = 'text-slate-300';
+  } else if (isThisWeek) {
+    // Destaque para eventos da semana (Agora em Verde/Emerald)
+    containerClasses = 'bg-emerald-900/10 border-emerald-500/30 shadow-sm';
+    titleClasses = 'text-emerald-200 font-semibold';
+    textClasses = 'text-emerald-300/80';
   } else if (isPast) {
     containerClasses = 'bg-slate-900/50 border-slate-800 opacity-70';
     titleClasses = 'text-slate-500 line-through';
@@ -42,14 +52,21 @@ const CalendarEventItem: React.FC<CalendarEventItemProps> = ({ event }) => {
   return (
     <div className={`rounded-xl p-4 border transition-all ${containerClasses}`}>
       {isHappeningNow && (
-         <div className="absolute top-0 right-0 w-20 h-20 bg-blue-500/10 rounded-bl-full pointer-events-none -mr-4 -mt-4"></div>
+         <div className="absolute top-0 right-0 w-20 h-20 bg-emerald-500/10 rounded-bl-full pointer-events-none -mr-4 -mt-4"></div>
       )}
 
       <div className="flex justify-between items-start relative z-10">
         <div className="flex-1">
-          <h3 className={`font-semibold text-sm mb-1 leading-snug ${titleClasses}`}>
-            {event.title}
-          </h3>
+          <div className="flex items-center gap-2">
+              <h3 className={`font-semibold text-sm mb-1 leading-snug ${titleClasses}`}>
+                {event.title}
+              </h3>
+              {isThisWeek && !isToday && !isHappeningNow && (
+                  <span className="text-[9px] bg-emerald-500/20 text-emerald-300 px-1.5 py-0.5 rounded border border-emerald-500/30 font-bold uppercase tracking-wider">
+                      Essa Semana
+                  </span>
+              )}
+          </div>
           
           <div className="flex items-center gap-3 mt-2">
             <div className={`flex items-center gap-1 text-xs ${textClasses} ${isHappeningNow ? 'font-bold' : ''}`}>
@@ -77,7 +94,7 @@ const CalendarEventItem: React.FC<CalendarEventItemProps> = ({ event }) => {
             href={event.link} 
             target="_blank" 
             rel="noopener noreferrer"
-            className="p-2 text-slate-500 hover:text-blue-400 transition-colors"
+            className="p-2 text-slate-500 hover:text-emerald-400 transition-colors"
           >
             <ExternalLink className="w-4 h-4" />
           </a>

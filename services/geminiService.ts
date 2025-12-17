@@ -1,5 +1,4 @@
 
-
 import { GoogleGenAI } from "@google/genai";
 import { FormSubmission } from "../types";
 import { FALLBACK_API_KEY } from "../constants";
@@ -52,12 +51,13 @@ export const generateDashboardInsight = async (context: {
     emails: string[],
     trello: number,
     weather?: string
-}): Promise<string> => {
+}, apiKeyOverride?: string): Promise<string> => {
     
-    const apiKey = getApiKey();
+    // Tenta usar a chave passada por parâmetro (do ConfigModal), se não, usa a do ambiente/fallback
+    const apiKey = (apiKeyOverride && apiKeyOverride.trim() !== '') ? apiKeyOverride : getApiKey();
 
     if (!apiKey) {
-        throw new Error("API Key ausente. Configure 'FALLBACK_API_KEY' no arquivo constants.ts.");
+        throw new Error("API Key ausente. Configure nas Engrenagem > Credenciais.");
     }
 
     try {
@@ -100,7 +100,7 @@ export const generateDashboardInsight = async (context: {
         let message = error.message || error.toString();
         
         if (message.includes("API key") || message.includes("403")) {
-            throw new Error("Chave API recusada. Verifique constants.ts.");
+            throw new Error("Chave API recusada. Verifique as configurações.");
         }
         if (message.includes("fetch")) {
              throw new Error("Sem internet.");

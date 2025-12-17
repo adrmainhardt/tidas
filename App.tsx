@@ -412,9 +412,10 @@ const App: React.FC = () => {
       clearTimeout(timeoutId);
       const latency = Math.round(endTime - startTime);
 
-      if (latency > 3000 && (site.responseTime || 0) < 3000 && site.status === SiteStatus.ONLINE) {
+      // NOTIFICAÇÃO DE LENTIDÃO REMOVIDA A PEDIDO DO USUÁRIO
+      /* if (latency > 3000 && (site.responseTime || 0) < 3000 && site.status === SiteStatus.ONLINE) {
         sendNotification('Instabilidade', `O site ${site.name} está lento.`);
-      }
+      } */
 
       if (stats) {
         return { ...site, status: SiteStatus.ONLINE, lastChecked: new Date(), responseTime: latency, onlineUsers: stats.online, monthlyVisitors: stats.monthly };
@@ -583,9 +584,11 @@ const App: React.FC = () => {
       results.forEach(listCards => allCards.push(...listCards));
       
       const newCards = allCards.filter(c => !prevTrelloCardIdsRef.current.includes(c.id));
-      if (newCards.length > 0 && prevTrelloCardIdsRef.current.length > 0) {
+      
+      // NOTIFICAÇÃO TRELLO REMOVIDA A PEDIDO DO USUÁRIO
+      /* if (newCards.length > 0 && prevTrelloCardIdsRef.current.length > 0) {
          sendNotification('Trello', `${newCards.length} cartões novos.`);
-      }
+      } */
 
       if (currentView !== ViewState.TRELLO) {
         const lastViewDate = new Date(trelloLastView);
@@ -635,7 +638,12 @@ const App: React.FC = () => {
     };
 
     try {
-        const result = await generateDashboardInsight(context as any); 
+        // Agora passamos a chave salva nas preferências para funcionar no Mobile
+        const effectiveKey = (dashPrefs.googleApiKey && dashPrefs.googleApiKey.trim() !== '') 
+                             ? dashPrefs.googleApiKey 
+                             : FALLBACK_API_KEY;
+
+        const result = await generateDashboardInsight(context as any, effectiveKey); 
         setInsightResult(result);
     } catch (error: any) {
         console.error("Falha ao gerar insight na UI:", error);
@@ -1114,9 +1122,9 @@ const App: React.FC = () => {
              const displayDate = `${weekday.charAt(0).toUpperCase() + weekday.slice(1)}, ${formattedDate}`;
              const isToday = dateKey === todayStr;
              return (
-               <div key={dateKey} className={`rounded-xl ${isToday ? 'bg-blue-900/10 border border-blue-500/30 p-2 -mx-2' : ''}`}>
-                  <h3 className={`text-xs font-bold uppercase tracking-wider mb-2 sticky top-0 py-2 backdrop-blur-sm z-10 flex items-center gap-2 ${isToday ? 'text-blue-300' : 'text-slate-500 bg-brand-900/90'}`}>
-                    {displayDate} {isToday && <span className="bg-blue-500 text-white text-[9px] px-1.5 py-0.5 rounded-full flex items-center gap-1"><Star className="w-2.5 h-2.5 fill-current"/> HOJE</span>}
+               <div key={dateKey} className={`rounded-xl ${isToday ? 'bg-emerald-900/10 border border-emerald-500/30 p-2 -mx-2' : ''}`}>
+                  <h3 className={`text-xs font-bold uppercase tracking-wider mb-2 sticky top-0 py-2 backdrop-blur-sm z-10 flex items-center gap-2 ${isToday ? 'text-emerald-300' : 'text-slate-500 bg-brand-900/90'}`}>
+                    {displayDate} {isToday && <span className="bg-emerald-500 text-white text-[9px] px-1.5 py-0.5 rounded-full flex items-center gap-1"><Star className="w-2.5 h-2.5 fill-current"/> HOJE</span>}
                   </h3>
                   <div className="space-y-3">{groupedEvents[dateKey].map(event => <CalendarEventItem key={event.id + event.start.getTime()} event={event} />)}</div>
                </div>

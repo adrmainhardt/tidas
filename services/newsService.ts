@@ -50,7 +50,7 @@ const fetchWithProxy = async (targetUrl: string): Promise<string> => {
  * Busca notícias. Agora extrai até 3 notícias por tópico para garantir volume.
  */
 export const fetchNewsWithAI = async (topics: string[], apiKeyOverride?: string): Promise<NewsArticle[]> => {
-  // Aumentamos o limite de tópicos para buscar (até 5 tópicos diferentes)
+  // Aumentamos o limite de tópicos para buscar (até 5 tópicos diferentes) para garantir variedade
   const shuffledTopics = [...topics].sort(() => 0.5 - Math.random()).slice(0, 5);
 
   const fetchPromises = shuffledTopics.map(async (topic) => {

@@ -1,139 +1,31 @@
 
-export enum SiteStatus {
-  ONLINE = 'ONLINE',
-  OFFLINE = 'OFFLINE',
-  CHECKING = 'CHECKING',
-  UNKNOWN = 'UNKNOWN'
+export interface DashboardMetrics {
+  totalRevenue: number;
+  totalLeads: number;
+  totalNewBusiness: number;
+  totalLost: number;
+  winRate: number;
+  activePipelineValue: number;
+  dealsBySource: Record<string, number>;
 }
 
-export interface SiteConfig {
-  id: string;
-  name: string;
-  url: string;
-  apiKey?: string; // Chave de segurança para conectar ao WP
-  lastChecked?: Date;
-  status: SiteStatus;
-  responseTime?: number; // in ms
-  onlineUsers?: number; // Quantidade de pessoas online agora
-  monthlyVisitors?: number; // Quantidade total de visitantes no mês
+// Representa a grade exata da planilha (Linhas x Colunas)
+export type SheetRow = string[];
+export type SheetGrid = SheetRow[];
+
+export enum Tab {
+  HOME = 'home',
+  MARKETING = 'marketing',
+  NEW_BUSINESS = 'new_business',
+  WON = 'won',
+  LOST = 'lost',
+  COMMERCIAL_DATA = 'commercial_data',
+  STORES_INSTALLED = 'stores_installed',
+  NEW_OPPORTUNITIES = 'new_opportunities',
+  GOALS = 'goals',
+  OTHERS = 'others',
 }
 
-export interface FormSubmission {
-  id: string;
-  siteId: string;
-  senderName: string;
-  senderEmail: string;
-  message: string;
-  timestamp: Date;
-  isRead: boolean;
-}
-
-export interface EmailMessage {
-  id: string;
-  sender: string;
-  subject: string;
-  snippet: string;
-  body: string; // Conteúdo completo HTML ou Texto
-  date: Date;
-  isUnread: boolean;
-  label: 'Primary' | 'Updates' | 'Promotions';
-}
-
-export interface SlackMessage {
-  id: string;
-  userId: string;
-  userName: string;
-  avatar: string;
-  text: string;
-  timestamp: Date;
-  isRead: boolean;
-  channelId: string;
-}
-
-// Tipos do Trello
-export interface TrelloBoard {
-  id: string;
-  name: string;
-}
-
-export interface TrelloList {
-  id: string;
-  name: string;
-}
-
-export interface TrelloCard {
-  id: string;
-  name: string;
-  desc: string;
-  dateLastActivity: Date;
-  listId: string;
-  listName?: string; // Preenchido pelo frontend
-  url: string;
-  labels: { id: string; name: string; color: string }[];
-}
-
-// Tipos de Clima
-export interface WeatherData {
-  current: {
-    temp: number;
-    code: number;
-  };
-  today: {
-    min: number;
-    max: number;
-    code: number;
-  };
-  tomorrow: {
-    min: number;
-    max: number;
-    code: number;
-  };
-  weekSummary?: string; // Resumo textual dos próximos dias
-  locationName?: string;
-}
-
-// Tipos de Calendário
-export interface CalendarEvent {
-  id: string;
-  title: string;
-  description: string;
-  location: string;
-  start: Date;
-  end: Date;
-  isAllDay: boolean;
-  link?: string;
-  status?: string;
-}
-
-// Tipos de Notícias
-export interface NewsArticle {
-  id: string;
-  topic: string;
-  title: string;
-  summary: string;
-  source: string;
-  publishedAt?: string;
-  timestamp: number; // Novo campo para ordenação
-  url?: string; // URL extraída do grounding ou busca
-}
-
-// Preferências do Dashboard
-export interface DashboardPrefs {
-  showSites: boolean;
-  showTrello: boolean;
-  showGoogle: boolean;
-  showWeather: boolean;
-  showCalendar: boolean;
-  googleApiKey?: string; // Nova chave para persistir a API Key pública
-  newsTopics: string[]; // Tópicos de notícias
-  dashboardOrder?: string[]; // Ordem dos widgets na tela inicial
-}
-
-export enum ViewState {
-  DASHBOARD = 'DASHBOARD',
-  WEBSITES = 'WEBSITES', // Unificado (Sites + Forms)
-  GOOGLE = 'GOOGLE',
-  TRELLO = 'TRELLO',
-  CALENDAR = 'CALENDAR',
-  NEWS = 'NEWS'
-}
+export type AppData = {
+  [key in Tab]?: SheetGrid;
+};

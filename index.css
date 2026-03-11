@@ -1,0 +1,40 @@
+@import "tailwindcss";
+
+:root {
+  --bg-main: #00243a;
+  --bg-sidebar: #001a2c;
+  --bg-sidebar-header: #001524;
+  --bg-card: #001a2c;
+  --bg-card-gradient-to: #003554;
+  --text-main: #ffffff;
+  --text-muted: #94a3b8;
+  --border: rgba(255, 255, 255, 0.1);
+  --accent: #70d44c;
+  --accent-muted: rgba(112, 212, 76, 0.15);
+  --card-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+}
+
+body {
+  background-color: var(--bg-main);
+  color: var(--text-main);
+  transition: background-color 0.3s ease, color 0.3s ease;
+}
+
+.custom-scrollbar::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: var(--text-muted);
+  opacity: 0.3;
+  border-radius: 10px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: var(--accent);
+}

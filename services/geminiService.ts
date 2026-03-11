@@ -1,113 +1,46 @@
 
 import { GoogleGenAI } from "@google/genai";
-import { FormSubmission } from "../types";
-import { FALLBACK_API_KEY } from "../constants";
+import { SheetGrid, Tab } from "../types";
 
-// Função auxiliar para garantir que temos uma chave
-const getApiKey = (): string | undefined => {
-  // Prioriza a variável de ambiente (Web), mas usa o fallback do constants.ts (Mobile/PWA)
-  let key = process.env.API_KEY;
-  
-  if (!key || key.trim() === '') {
-      key = FALLBACK_API_KEY;
+export const generateDashboardInsights = async (tab: Tab, data: SheetGrid): Promise<string> => {
+  const apiKey = process.env.GEMINI_API_KEY; 
+  if (!apiKey) {
+    return "Configuração pendente: A Chave de API (GEMINI_API_KEY) não foi encontrada no ambiente de produção (Vercel).";
   }
-  
-  return (key && key.trim() !== '') ? key : undefined;
-};
 
-export const analyzeForms = async (forms: FormSubmission[]): Promise<string> => {
   try {
-    const apiKey = getApiKey();
-    if (!apiKey) return "Erro: Configure FALLBACK_API_KEY no constants.ts";
-
     const ai = new GoogleGenAI({ apiKey });
     
-    const formSummary = forms.map(f => 
-      `- De: ${f.senderName} (${f.senderEmail}) | Mensagem: "${f.message}" | Data: ${f.timestamp.toLocaleString()}`
-    ).join('\n');
+    // Prepare data summary based on tab
+    let dataSummary = "";
+    if (tab === Tab.HOME) {
+      dataSummary = "Esta é a visão geral do dashboard com KPIs consolidados de Marketing, Vendas e Financeiro.";
+    } else {
+      // Take first 15 rows for context
+      const sample = data.slice(0, 15).map(row => row.join(" | ")).join("\n");
+      dataSummary = `Dados da aba "${tab.toUpperCase()}":\n${sample}`;
+    }
 
     const prompt = `
-      Analise estas mensagens de formulário de contato:
-      ${formSummary}
-
-      Resuma a oportunidade mais urgente e o sentimento geral em português.
+      Atue como um Consultor de Negócios Especialista.
+      Estou analisando a aba "${tab}" de um dashboard empresarial.
+      
+      ${dataSummary}
+      
+      Com base nesses dados, forneça 3 insights estratégicos curtos (máximo 2 frases cada) em Português do Brasil.
+      Identifique tendências, pontos de atenção ou oportunidades de melhoria.
+      Seja direto e profissional.
+      Não use markdown complexo, apenas texto plano com quebras de linha.
     `;
 
     const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
+      model: 'gemini-3-flash-preview',
       contents: prompt,
     });
 
-    return response.text || "Análise indisponível.";
-  } catch (error: any) {
-    console.error("Erro Gemini Forms:", error);
-    return `Erro: ${error.message || 'Falha na IA'}`;
+    return response.text || "Não foi possível gerar insights no momento.";
+  } catch (error) {
+    console.error("Gemini API Error:", error);
+    return "Erro ao conectar com a IA. Verifique se a API Key é válida e se há permissão de acesso.";
   }
 };
-
-export const generateDashboardInsight = async (context: {
-    sites: string[],
-    forms: string[],
-    emails: string[],
-    trello: number,
-    weather?: string
-}, apiKeyOverride?: string): Promise<string> => {
-    
-    // Tenta usar a chave passada por parâmetro (do ConfigModal), se não, usa a do ambiente/fallback
-    const apiKey = (apiKeyOverride && apiKeyOverride.trim() !== '') ? apiKeyOverride : getApiKey();
-
-    if (!apiKey) {
-        throw new Error("API Key ausente. Configure nas Engrenagem > Credenciais.");
-    }
-
-    try {
-        const ai = new GoogleGenAI({ apiKey });
-
-        const siteText = context.sites?.length ? context.sites.join(', ') : "Todos online.";
-        const formText = context.forms?.length ? context.forms.join('; ') : "Sem mensagens.";
-        const emailText = context.emails?.length ? context.emails.join('; ') : "Sem urgências.";
-        const trelloText = context.trello > 0 ? `${context.trello} tarefas.` : "Trello em dia.";
-        const weatherText = context.weather || "Clima desconhecido.";
-
-        const prompt = `
-        Atue como assistente pessoal (Tidas).
-        DADOS:
-        - Clima: ${weatherText}
-        - Sites: ${siteText}
-        - Inbox: ${formText} // ${emailText}
-        - Trello: ${trelloText}
-
-        INSTRUÇÃO:
-        Crie um resumo executivo de 3 linhas em Português.
-        Considere a previsão do tempo para a semana ao dar conselhos.
-        Se houver chuva ou site offline, priorize isso.
-        Seja direto.
-        `;
-
-        const response = await ai.models.generateContent({
-            model: 'gemini-2.5-flash',
-            contents: prompt,
-        });
-
-        if (!response.text) {
-            throw new Error("IA retornou vazio.");
-        }
-
-        return response.text;
-    } catch (error: any) {
-        console.error("Erro detalhado Insight:", error);
-        
-        let message = error.message || error.toString();
-        
-        if (message.includes("API key") || message.includes("403")) {
-            throw new Error("Chave API recusada. Verifique as configurações.");
-        }
-        if (message.includes("fetch")) {
-             throw new Error("Sem internet.");
-        }
-        if (message.includes("quota")) {
-             throw new Error("Cota excedida (429).");
-        }
-        throw new Error("Erro na IA: " + message.substring(0, 30));
-    }
-}

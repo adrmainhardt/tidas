@@ -238,7 +238,7 @@ const App: React.FC = () => {
 
   // Home Dashboard State
   const [homeLayout, setHomeLayout] = useState<Record<string, string[]>>(() => {
-    const LAYOUT_VERSION = '10.0'; // Force reset to version 10.0
+    const LAYOUT_VERSION = '20.0'; // Force reset to version 20.0
     const savedVersion = localStorage.getItem('homeLayoutVersion');
     const saved = localStorage.getItem('homeLayout');
     
@@ -255,10 +255,10 @@ const App: React.FC = () => {
         'Dados Comerciais - Total de Lojas Instaladas',
         'Dados Comerciais - Metas',
         'Dados Comerciais - Negócios iniciados',
-        'Marketing - Clientes comprando',
         'Marketing - Oportunidades',
-        'Marketing - Uso App',
-        'Marketing - Baixaram o App'
+        'Marketing - Clientes comprando',
+        'Marketing - Baixaram o App',
+        'Marketing - Uso App'
       ],
       marketing: [
         'Marketing - Instagram',
@@ -288,6 +288,7 @@ const App: React.FC = () => {
       return saved ? JSON.parse(saved) : {
         'Marketing - Visualizações do Canal': 'Visualizações Youtube',
         'Marketing - Insc. do Canal (Youtube)': 'Inscritos Youtube',
+        'Marketing - Inscritos Youtube': 'Inscritos Youtube',
         'Marketing - Visita site': 'Visita Site',
         'Marketing - Instagram': 'Instagram',
         'Marketing - Clientes comprando': 'Clientes Comprando',
@@ -295,7 +296,7 @@ const App: React.FC = () => {
         'Marketing - Uso App': 'Uso App',
         'Marketing - Baixaram o App': 'Baixaram o App',
         'Dados Comerciais - Total de Lojas Instaladas': 'Total de Lojas Instaladas',
-        'Dados Comerciais - Metas': 'Metas Comerciais',
+        'Dados Comerciais - Metas': 'Meta Mês Fevereiro - SC',
         'Dados Comerciais - Negócios iniciados': 'Negócios Iniciados'
       };
     } catch (e) {
@@ -792,10 +793,28 @@ const App: React.FC = () => {
     if (!grid || !rowLabel || grid.length === 0) return { total: 0, diff30: 0, sparklineData: [] };
     
     // Find the header row to get column indices
-    const headerRow = grid.find(r => r.some(cell => cell.toLowerCase().includes('total'))) || grid[0];
-    let totalIndex = headerRow.findIndex(cell => cell.toLowerCase().includes('total'));
+    const headerRow = grid.find(r => r.some(cell => cell && cell.toLowerCase().includes('total'))) || grid[0];
     
-    // Fallback: if no "Total" column found, use the last column
+    // Find the "Total" column index more robustly
+    let totalIndex = -1;
+    for (let i = headerRow.length - 1; i >= 0; i--) {
+        if (headerRow[i] && headerRow[i].toLowerCase().includes('total')) {
+            totalIndex = i;
+            break;
+        }
+    }
+    
+    // Fallback: if no "Total" column found, use the last non-empty column of the header
+    if (totalIndex === -1) {
+        for (let i = headerRow.length - 1; i >= 0; i--) {
+            if (headerRow[i] && headerRow[i].trim() !== '') {
+                totalIndex = i;
+                break;
+            }
+        }
+    }
+    
+    // Ultimate fallback
     if (totalIndex === -1) totalIndex = headerRow.length - 1;
 
     // Find the row. 
@@ -813,6 +832,11 @@ const App: React.FC = () => {
       // Search for the row label primarily in the first column for better precision
       row = grid.find(r => r[0] && r[0].toLowerCase().trim().includes(searchLabel));
       
+      // If not found and it's a YouTube subscriber label, try common variations
+      if (!row && (searchLabel.includes('youtube') && (searchLabel.includes('insc')))) {
+          row = grid.find(r => r[0] && (r[0].toLowerCase().includes('youtube') && r[0].toLowerCase().includes('insc')));
+      }
+
       // Fallback to searching all columns if not found in the first one
       if (!row) {
         row = grid.find(r => r.some(cell => cell.toLowerCase().trim().includes(searchLabel)));

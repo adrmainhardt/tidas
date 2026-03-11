@@ -1,31 +1,130 @@
+
 <!DOCTYPE html>
-<html lang="en">
+<html lang="pt-BR">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Dashboard Tidas</title>
-    <link rel="icon" type="image/svg+xml" href="https://tidas.com.br/wp-content/uploads/2024/05/logo_redon.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+    <meta name="theme-color" content="#0f172a">
+    
+    <!-- Web App Capabilities -->
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="referrer" content="origin">
+    
+    <!-- PWA Manifest para Android -->
+    <link rel="manifest" href="/manifest.json">
+    
+    <!-- Ícones -->
+    <link rel="icon" href="https://tidas.com.br/wp-content/uploads/2025/11/icoapp.png">
+    <link rel="apple-touch-icon" href="https://tidas.com.br/wp-content/uploads/2025/11/icoapp.png">
+    
+    <title>Tidas</title>
+    
+    <!-- Google Identity Services para Login com Gmail -->
+    <script src="https://accounts.google.com/gsi/client" async defer></script>
+    
+    <!-- CRITICAL FIX: Polyfill para process.env para evitar tela branca -->
+    <script>
+      window.process = window.process || { env: {} };
+    </script>
+
+    <script type="importmap">
+    {
+      "imports": {
+        "react/": "https://aistudiocdn.com/react@^19.2.0/",
+        "react": "https://aistudiocdn.com/react@^19.2.0",
+        "@google/genai": "https://aistudiocdn.com/@google/genai@^1.30.0",
+        "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.0/",
+        "lucide-react": "https://aistudiocdn.com/lucide-react@^0.554.0"
+      }
+    }
+    </script>
+
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            fontFamily: {
+              sans: ['Inter', 'sans-serif'],
+            },
+            colors: {
+              brand: {
+                900: '#0f172a',
+                800: '#1e293b',
+                700: '#334155',
+                600: '#475569',
+                500: '#64748b',
+                400: '#94a3b8',
+                300: '#cbd5e1',
+                200: '#e2e8f0',
+                100: '#f1f5f9',
+                50: '#f8fafc',
+              },
+              secondary: {
+                DEFAULT: '#38bdf8', // sky-400
+              }
+            },
+            spacing: {
+              'safe-top': 'env(safe-area-inset-top, 20px)',
+              'safe-bottom': 'env(safe-area-inset-bottom, 20px)',
+            }
+          },
+        },
+      }
+    </script>
     <style>
+      html, body {
+        margin: 0 !important;
+        padding: 0 !important;
+        height: 100%;
+        width: 100%;
+        overflow-x: hidden;
+      }
       body {
-        overflow: hidden;
+        background-color: #0f172a; /* brand-900 */
+        color: #f8fafc; /* brand-50 */
+        overscroll-behavior-y: none; /* Previne efeito elástico no mobile */
+        -webkit-tap-highlight-color: transparent;
+        /* Remove qualquer borda padrão que possa causar a linha de 1px */
+        border: none !important;
+      }
+      /* Utilitários de Safe Area */
+      .pt-safe-area {
+        padding-top: env(safe-area-inset-top, 24px);
+      }
+      .pb-safe-area {
+        padding-bottom: env(safe-area-inset-bottom, 20px);
+      }
+
+      /* Hide scrollbar for clean UI */
+      ::-webkit-scrollbar {
+        width: 0px;
+        background: transparent;
+      }
+      .scrollbar-hide::-webkit-scrollbar {
+        display: none;
+      }
+      .scrollbar-hide {
+        -ms-overflow-style: none;
+        scrollbar-width: none;
+      }
+      
+      /* Animações */
+      @keyframes fadeIn {
+        from { opacity: 0; transform: translateY(10px); }
+        to { opacity: 1; transform: translateY(0); }
+      }
+      .animate-fade-in {
+        animation: fadeIn 0.4s ease-out forwards;
       }
     </style>
-  <script type="importmap">
-{
-  "imports": {
-    "lucide-react": "https://aistudiocdn.com/lucide-react@^0.554.0",
-    "@google/genai": "https://aistudiocdn.com/@google/genai@^1.30.0",
-    "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.0/",
-    "react/": "https://aistudiocdn.com/react@^19.2.0/",
-    "react": "https://aistudiocdn.com/react@^19.2.0",
-    "recharts": "https://aistudiocdn.com/recharts@^3.5.0"
-  }
-}
-</script>
-<link rel="stylesheet" href="/index.css">
+  <link rel="stylesheet" href="/index.css">
 </head>
   <body>
     <div id="root"></div>
-  <script type="module" src="/index.tsx"></script>
-</body>
+    <script type="module" src="/index.tsx"></script>
+  </body>
 </html>

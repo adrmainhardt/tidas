@@ -1,5 +1,7 @@
 {
-  "name": "Dashboard Tidas",
-  "description": "Painel de controle de vendas e marketing completo e em tempo real que monitora marketing, novos negócios, negócios fechados e perdidos, com insights baseados em inteligência artificial. Otimizado para telas Full HD.",
-  "requestFramePermissions": []
+  "name": "Tidas",
+  "description": "Aplicativo de monitoramento de status de sites e recebimento de formulários para sites Wordpress/Elementor.",
+  "requestFramePermissions": [
+    "geolocation"
+  ]
 }
